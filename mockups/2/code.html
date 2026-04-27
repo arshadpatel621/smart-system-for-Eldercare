@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>VitalCare Professional - Health Monitor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#dce9ff",
+                        "primary-container": "#1e3a8a",
+                        "on-primary-fixed-variant": "#264191",
+                        "secondary-container": "#d3e7b1",
+                        "surface-variant": "#d5e3fc",
+                        "surface-container-highest": "#d5e3fc",
+                        "on-surface-variant": "#444651",
+                        "surface-container-low": "#eff4ff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-fixed-variant": "#3c4c24",
+                        "surface-bright": "#f8f9ff",
+                        "inverse-primary": "#b6c4ff",
+                        "on-surface": "#0d1c2e",
+                        "on-tertiary-fixed-variant": "#43474b",
+                        "secondary-fixed": "#d6eab4",
+                        "primary": "#00236f",
+                        "surface-tint": "#4059aa",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#dfe3e7",
+                        "inverse-surface": "#233144",
+                        "outline": "#757682",
+                        "secondary-fixed-dim": "#bace99",
+                        "tertiary-container": "#3c4144",
+                        "error": "#ba1a1a",
+                        "surface-container": "#e6eeff",
+                        "on-secondary-fixed": "#121f00",
+                        "on-background": "#0d1c2e",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#90a8ff",
+                        "surface": "#f8f9ff",
+                        "on-primary-fixed": "#00164e",
+                        "inverse-on-surface": "#eaf1ff",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed-dim": "#c3c7cb",
+                        "on-tertiary-container": "#a8adb1",
+                        "secondary": "#536439",
+                        "surface-dim": "#ccdbf3",
+                        "on-tertiary-fixed": "#171c1f",
+                        "on-secondary-container": "#57683d",
+                        "primary-fixed": "#dce1ff",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "outline-variant": "#c5c5d3",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "background": "#f8f9ff",
+                        "tertiary": "#262b2e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-margin": "24px",
+                        "stack-lg": "32px",
+                        "unit": "8px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "gutter": "16px",
+                        "section-gap": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Public Sans"],
+                        "label-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "headline-lg": ["Public Sans"],
+                        "display": ["Public Sans"],
+                        "label-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "body-lg": ["20px", {"lineHeight": "30px", "fontWeight": "400"}],
+                        "body-md": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-lg": ["16px", {"lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Public Sans', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center w-full px-6 py-3 sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-sm font-public-sans antialiased">
+<div class="text-xl font-bold tracking-tight text-blue-900 dark:text-blue-50">VitalCare Professional</div>
+<div class="flex items-center gap-4">
+<div class="cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors p-2 rounded-full">
+<span class="material-symbols-outlined text-slate-500 dark:text-slate-400" data-icon="notifications">notifications</span>
+</div>
+<div class="cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors p-2 rounded-full">
+<span class="material-symbols-outlined text-slate-500 dark:text-slate-400" data-icon="contact_support">contact_support</span>
+</div>
+<img alt="Provider profile picture" class="w-10 h-10 rounded-full border-2 border-surface-container-high" data-alt="Portrait of a professional healthcare provider with a kind expression and medical uniform" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAfpuk7PlThY5YbML3DJLDa9C3iBJC73p8gbetHuDe3QG53dOo9LpQolM5yzXO3LzumLZ5KyVoQuDTaeTogVQsD3b_cq6zb4euWLjNjyEYcn7tFuBKpFfd0cGuFKsENFCbXkPR9hep3u_E-G_d-Glw0swc9oIkzQQgQeoXoqByIbNYlWRJsdscOOiImq-mzgI_lMOLX0mrITnMsie76p-l5d6c3-c7-EBofcPjhc7ltfNRsXym3P1mcj5SHC_CHyDCoMOlzaNv63A"/>
+</div>
+</header>
+<div class="flex">
+<!-- SideNavBar -->
+<aside class="hidden lg:flex flex-col fixed left-0 top-0 h-full z-50 bg-slate-50 dark:bg-slate-950 w-64 border-r border-slate-200 dark:border-slate-800 transition-all duration-200 ease-in-out">
+<div class="p-6">
+<div class="text-lg font-black text-blue-900 dark:text-blue-100 mb-1">Resident Care</div>
+<div class="text-xs text-slate-500 mb-6 uppercase tracking-widest font-bold">High Priority Monitor</div>
+</div>
+<nav class="flex-1 px-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-public-sans text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-100 border-r-4 border-blue-900 dark:border-blue-400 font-public-sans text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="monitor_heart" data-weight="fill" style="font-variation-settings: 'FILL' 1;">monitor_heart</span>
+<span>Health Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-public-sans text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="event_repeat">event_repeat</span>
+<span>Routine</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-public-sans text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span>Care Team</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 font-public-sans text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span>AI Insights</span>
+</a>
+</nav>
+<div class="p-4 space-y-4">
+<button class="w-full py-4 px-4 bg-[#b91c1c] text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="emergency" data-weight="fill" style="font-variation-settings: 'FILL' 1;">emergency</span>
+                    EMERGENCY SOS
+                </button>
+<div class="pt-4 border-t border-slate-200 dark:border-slate-800">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                        Settings
+                    </a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                        Support
+                    </a>
+</div>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 lg:ml-64 p-container-margin pb-24 lg:pb-8">
+<header class="mb-stack-lg">
+<h1 class="font-display text-display text-primary mb-2">Health Monitor</h1>
+<p class="font-body-md text-on-surface-variant">Real-time physiological tracking for Resident 402B</p>
+</header>
+<!-- Bento Grid Content -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- SpO2 Section (Hero Card) -->
+<div class="md:col-span-8 bg-surface-container-lowest rounded-xl p-6 shadow-[0_4px_12px_rgba(30,58,138,0.04)] border border-surface-container flex items-center justify-between">
+<div class="space-y-4">
+<div class="flex items-center gap-2 text-primary font-label-lg">
+<span class="material-symbols-outlined" data-icon="bloodtype">bloodtype</span>
+                            Blood Oxygen (SpO2)
+                        </div>
+<div class="flex items-baseline gap-2">
+<span class="text-6xl font-black text-primary tracking-tighter">98</span>
+<span class="text-2xl font-bold text-on-surface-variant">%</span>
+</div>
+<div class="flex items-center gap-2 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full w-fit font-label-md">
+<span class="material-symbols-outlined text-[18px]" data-icon="check_circle">check_circle</span>
+                            Optimal Range
+                        </div>
+</div>
+<div class="hidden sm:block w-48 h-32 relative">
+<svg class="w-full h-full text-secondary" viewbox="0 0 100 40">
+<path d="M0 35 Q 20 5, 40 30 T 80 15 T 100 25" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="3"></path>
+</svg>
+<div class="absolute -bottom-2 right-0 text-[10px] uppercase font-bold text-slate-400">7-Day Consistency</div>
+</div>
+</div>
+<!-- Daily Steps -->
+<div class="md:col-span-4 bg-secondary-container/30 rounded-xl p-6 border border-secondary-container/50 flex flex-col justify-between">
+<div class="flex justify-between items-start">
+<div class="p-3 bg-secondary-container rounded-lg text-secondary">
+<span class="material-symbols-outlined" data-icon="directions_walk">directions_walk</span>
+</div>
+<div class="text-right">
+<span class="block text-secondary font-display text-headline-md">6,432</span>
+<span class="block text-on-secondary-container font-label-md uppercase">of 8,000 steps</span>
+</div>
+</div>
+<div class="mt-6">
+<div class="w-full bg-slate-200 rounded-full h-3">
+<div class="bg-secondary h-3 rounded-full" style="width: 80%"></div>
+</div>
+<p class="mt-2 font-label-md text-secondary">80% of daily goal met</p>
+</div>
+</div>
+<!-- Blood Pressure History -->
+<div class="md:col-span-8 bg-surface-container-lowest rounded-xl p-6 border border-surface-container">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline-md text-primary">Blood Pressure History</h3>
+<div class="flex gap-2">
+<span class="bg-surface-container px-3 py-1 rounded-lg text-primary font-label-md cursor-pointer">Week</span>
+<span class="hover:bg-surface-container px-3 py-1 rounded-lg text-on-surface-variant font-label-md cursor-pointer transition-colors">Month</span>
+</div>
+</div>
+<div class="h-64 bg-slate-50 rounded-xl flex items-end justify-between px-8 py-4 border-b-2 border-slate-200">
+<!-- Mock Bars for Chart -->
+<div class="w-12 bg-primary-container/20 rounded-t-lg h-[60%] relative group cursor-help">
+<div class="absolute inset-x-0 bottom-0 bg-primary-container h-[80%] rounded-t-lg"></div>
+<div class="absolute -top-8 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">120/80</div>
+</div>
+<div class="w-12 bg-primary-container/20 rounded-t-lg h-[65%] relative group cursor-help">
+<div class="absolute inset-x-0 bottom-0 bg-primary-container h-[85%] rounded-t-lg"></div>
+</div>
+<div class="w-12 bg-primary-container/20 rounded-t-lg h-[70%] relative group cursor-help">
+<div class="absolute inset-x-0 bottom-0 bg-primary-container h-[90%] rounded-t-lg"></div>
+</div>
+<div class="w-12 bg-primary-container/20 rounded-t-lg h-[55%] relative group cursor-help">
+<div class="absolute inset-x-0 bottom-0 bg-primary-container h-[75%] rounded-t-lg"></div>
+</div>
+<div class="w-12 bg-primary-container/20 rounded-t-lg h-[62%] relative group cursor-help">
+<div class="absolute inset-x-0 bottom-0 bg-primary-container h-[82%] rounded-t-lg"></div>
+</div>
+</div>
+<div class="flex justify-between mt-4 px-8 text-xs font-bold text-slate-400 uppercase tracking-widest">
+<span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span>
+</div>
+</div>
+<!-- Sleep Quality Card (Dark Refined) -->
+<div class="md:col-span-4 bg-primary-container rounded-xl p-6 text-white overflow-hidden relative">
+<div class="relative z-10 flex flex-col h-full justify-between">
+<div>
+<div class="flex items-center gap-2 font-label-lg mb-4 text-on-primary-container">
+<span class="material-symbols-outlined" data-icon="dark_mode">dark_mode</span>
+                                Sleep Quality
+                            </div>
+<div class="space-y-1">
+<span class="text-5xl font-black block">8h 15m</span>
+<span class="text-on-primary-container font-label-md">Deep Sleep Efficiency: 88%</span>
+</div>
+</div>
+<div class="mt-8">
+<div class="flex gap-1 h-8 items-end">
+<div class="w-full bg-on-primary-container/20 h-4 rounded-sm"></div>
+<div class="w-full bg-on-primary-container/50 h-6 rounded-sm"></div>
+<div class="w-full bg-white h-8 rounded-sm"></div>
+<div class="w-full bg-on-primary-container/60 h-5 rounded-sm"></div>
+<div class="w-full bg-on-primary-container/30 h-3 rounded-sm"></div>
+</div>
+<p class="mt-3 text-[12px] font-medium text-blue-200">Last cycle: 10:45 PM - 7:00 AM</p>
+</div>
+</div>
+<!-- Decorative Element -->
+<div class="absolute -right-12 -bottom-12 w-48 h-48 bg-white/5 rounded-full blur-3xl"></div>
+</div>
+<!-- Nutrition and Hydration -->
+<div class="md:col-span-12 bg-white rounded-xl p-8 border border-slate-200 shadow-sm">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="restaurant">restaurant</span>
+<h3 class="font-headline-md text-primary">Nutrition &amp; Hydration</h3>
+</div>
+<div class="grid md:grid-cols-2 gap-12">
+<!-- Water Intake -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<div>
+<span class="block font-label-lg text-primary">Water Intake</span>
+<span class="text-2xl font-bold">1.8 <span class="text-sm font-medium text-slate-400">/ 2.5 Liters</span></span>
+</div>
+<div class="text-primary-container bg-surface-container-low p-2 rounded-lg">
+<span class="material-symbols-outlined" data-icon="water_drop">water_drop</span>
+</div>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
+<div class="bg-blue-600 h-full rounded-full" style="width: 72%"></div>
+</div>
+<div class="flex justify-between font-label-md text-slate-500">
+<span>72% of target</span>
+<span>+2 glasses needed</span>
+</div>
+</div>
+<!-- Calorie Monitor -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<div>
+<span class="block font-label-lg text-primary">Daily Calories</span>
+<span class="text-2xl font-bold">1,420 <span class="text-sm font-medium text-slate-400">/ 1,800 kcal</span></span>
+</div>
+<div class="text-secondary bg-secondary-container/50 p-2 rounded-lg">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+</div>
+</div>
+<div class="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
+<div class="bg-secondary h-full rounded-full" style="width: 78%"></div>
+</div>
+<div class="flex justify-between font-label-md text-slate-500">
+<span>78% consumed</span>
+<span>High Protein Focus</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe pt-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] rounded-t-2xl">
+<div class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Home</span>
+</div>
+<div class="flex flex-col items-center justify-center text-blue-900 dark:text-blue-100 bg-blue-50 dark:bg-blue-900/60 rounded-xl px-3 py-1 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="medical_services">medical_services</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Health</span>
+</div>
+<div class="flex flex-col items-center justify-center text-[#b91c1c] active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined text-3xl" data-icon="emergency" data-weight="fill" style="font-variation-settings: 'FILL' 1;">emergency</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">SOS</span>
+</div>
+<div class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Routine</span>
+</div>
+<div class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Team</span>
+</div>
+</nav>
+</div>
+</body></html>

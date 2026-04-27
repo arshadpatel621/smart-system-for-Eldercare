@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#dce9ff",
+                        "primary-container": "#1e3a8a",
+                        "on-primary-fixed-variant": "#264191",
+                        "secondary-container": "#d3e7b1",
+                        "surface-variant": "#d5e3fc",
+                        "surface-container-highest": "#d5e3fc",
+                        "on-surface-variant": "#444651",
+                        "surface-container-low": "#eff4ff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-fixed-variant": "#3c4c24",
+                        "surface-bright": "#f8f9ff",
+                        "inverse-primary": "#b6c4ff",
+                        "on-surface": "#0d1c2e",
+                        "on-tertiary-fixed-variant": "#43474b",
+                        "secondary-fixed": "#d6eab4",
+                        "primary": "#00236f",
+                        "surface-tint": "#4059aa",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#dfe3e7",
+                        "inverse-surface": "#233144",
+                        "outline": "#757682",
+                        "secondary-fixed-dim": "#bace99",
+                        "tertiary-container": "#3c4144",
+                        "error": "#ba1a1a",
+                        "surface-container": "#e6eeff",
+                        "on-secondary-fixed": "#121f00",
+                        "on-background": "#0d1c2e",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#90a8ff",
+                        "surface": "#f8f9ff",
+                        "on-primary-fixed": "#00164e",
+                        "inverse-on-surface": "#eaf1ff",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed-dim": "#c3c7cb",
+                        "on-tertiary-container": "#a8adb1",
+                        "secondary": "#536439",
+                        "surface-dim": "#ccdbf3",
+                        "on-tertiary-fixed": "#171c1f",
+                        "on-secondary-container": "#57683d",
+                        "primary-fixed": "#dce1ff",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "outline-variant": "#c5c5d3",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "background": "#f8f9ff",
+                        "tertiary": "#262b2e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-margin": "24px",
+                        "stack-lg": "32px",
+                        "unit": "8px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "gutter": "16px",
+                        "section-gap": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Public Sans"],
+                        "label-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "headline-lg": ["Public Sans"],
+                        "display": ["Public Sans"],
+                        "label-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "body-lg": ["20px", {"lineHeight": "30px", "fontWeight": "400"}],
+                        "body-md": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-lg": ["16px", {"lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        body {
+            font-family: 'Public Sans', sans-serif;
+            background-color: #f8fafc;
+        }
+    </style>
+</head>
+<body class="text-on-surface">
+<header class="bg-white dark:bg-slate-900 text-blue-900 dark:text-blue-400 font-public-sans antialiased docked full-width top-0 border-b border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center w-full px-6 py-3 sticky top-0 z-40">
+<div class="text-xl font-bold tracking-tight text-blue-900 dark:text-blue-50">VitalCare Professional</div>
+<div class="flex items-center gap-4">
+<button class="cursor-pointer active:opacity-70 text-slate-500 dark:text-slate-400 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="cursor-pointer active:opacity-70 text-slate-500 dark:text-slate-400 p-2 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full">
+<span class="material-symbols-outlined">contact_support</span>
+</button>
+<div class="h-10 w-10 rounded-full overflow-hidden border-2 border-primary-container">
+<img alt="Provider profile picture" data-alt="professional portrait of a friendly healthcare provider in clinic setting, soft lighting, blurred background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDkrlwtFhFFgtSJB0Rc6IQG1r1Whg4hDZZrmkZCav8NVsuhoO5nbjrED5qBYoDiWpO4mcOkIF5Rnocz321pN8-QulAiQdr_HUOvHI8y8N0rjAYU9709dGiBvZreAyXFEK1BhuO66KfReyuMUwCsahT8EM4su868Re4SETaYfCxTIHFvmIjbVK0NyYZqr6XX7t8dPTASUAkrKrXbk15NAksUPGBof3TXBngHXtfLl1Oo1eQmObJ5VJgmP4bGbxVzzovgSvhr-i8Mxw"/>
+</div>
+</div>
+</header>
+<aside class="hidden lg:flex flex-col fixed left-0 top-0 h-full z-50 bg-slate-50 dark:bg-slate-950 text-blue-900 dark:text-blue-400 font-public-sans text-sm font-medium h-screen w-64 border-r border-slate-200 dark:border-slate-800 transition-all duration-200 ease-in-out pt-[64px]">
+<div class="p-6">
+<div class="text-lg font-black text-blue-900 dark:text-blue-100 mb-1">Resident Care</div>
+<div class="text-xs text-slate-500 dark:text-slate-400">High Priority Monitor</div>
+</div>
+<nav class="flex-1 px-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all" href="#">
+<span class="material-symbols-outlined">monitor_heart</span>
+                Health Monitor
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all" href="#">
+<span class="material-symbols-outlined">event_repeat</span>
+                Routine
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all" href="#">
+<span class="material-symbols-outlined">group</span>
+                Care Team
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-100 border-r-4 border-blue-900 dark:border-blue-400 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">psychology</span>
+                AI Insights
+            </a>
+</nav>
+<div class="p-4">
+<button class="w-full py-4 bg-red-700 hover:bg-red-800 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">emergency</span>
+                EMERGENCY SOS
+            </button>
+</div>
+<div class="px-4 py-6 border-t border-slate-200 dark:border-slate-800 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 transition-all" href="#">
+<span class="material-symbols-outlined">settings</span>
+                Settings
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 transition-all" href="#">
+<span class="material-symbols-outlined">help</span>
+                Support
+            </a>
+</div>
+</aside>
+<main class="lg:ml-64 p-container-margin min-h-screen">
+<div class="max-w-7xl mx-auto space-y-stack-lg">
+<header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-primary">AI Health Insights</h1>
+<p class="font-body-md text-body-md text-slate-500">Personalized data analysis powered by VitalAI</p>
+</div>
+<div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
+<div class="relative">
+<span class="material-symbols-outlined text-blue-600 text-3xl">watch</span>
+<div class="absolute -top-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+</div>
+<div>
+<div class="text-label-md font-label-md text-primary">Apple Watch Series 9</div>
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-green-500"></div>
+<span class="text-xs font-medium text-slate-500">Synced 2m ago</span>
+</div>
+</div>
+</div>
+</header>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<section class="lg:col-span-8 space-y-gutter">
+<div class="bg-gradient-to-br from-primary-container to-primary rounded-xl p-8 text-white relative overflow-hidden shadow-xl">
+<div class="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+<div class="flex-1 space-y-4">
+<div class="inline-flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+<span class="material-symbols-outlined text-sm">auto_awesome</span>
+                                    Weekly Summary
+                                </div>
+<h2 class="font-headline-md text-headline-md leading-tight">"You're making great progress, Elena! Your sleep quality improved by 14% this week."</h2>
+<div class="grid grid-cols-3 gap-4 pt-4 border-t border-white/20">
+<div>
+<div class="text-white/60 text-xs mb-1">Avg. Steps</div>
+<div class="text-xl font-bold">6,420</div>
+</div>
+<div>
+<div class="text-white/60 text-xs mb-1">Resting Heart</div>
+<div class="text-xl font-bold">68 BPM</div>
+</div>
+<div>
+<div class="text-white/60 text-xs mb-1">Active Mins</div>
+<div class="text-xl font-bold">145m</div>
+</div>
+</div>
+</div>
+<div class="hidden md:block w-32 h-32 rounded-full border-4 border-white/20 p-2">
+<img alt="Activity tracking" class="w-full h-full object-cover rounded-full" data-alt="macro close-up of a high-tech smart watch showing glowing health metrics and activity rings on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBH-Oh-RELZGEoLlGTJx-GSbX6e7pNuGHoxxjRAS-qEkop0Ol0AcpWCiSdeM6skTEojFCbWoT7-3PfQhJgKG99-FibjBc5h0fTZ2D92sbE0wAiLXrDeC2Gvxv55s2jvW_jf08rsYgvJ7Y-LY-aByflC3hN1nujgyD-O19v59I3IZmcgsW0nnDqADYsYp1RS3IUvV50Pv1KOByG4wXi6X5xW_oFhlHU3AGrAU8dNIguWyuTCbEEpDyeaR7h-o7K_WDM8cikl0Nnj5g"/>
+</div>
+</div>
+<div class="absolute -right-20 -bottom-20 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
+</div>
+<div class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col h-[500px]">
+<div class="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-xl">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
+<span class="material-symbols-outlined">smart_toy</span>
+</div>
+<span class="font-label-lg text-label-lg">AI Care Companion</span>
+</div>
+<span class="text-xs text-green-600 font-bold px-2 py-0.5 bg-green-50 rounded-full">Always Online</span>
+</div>
+<div class="flex-1 overflow-y-auto p-6 space-y-6">
+<div class="flex gap-4 max-w-[85%]">
+<div class="w-8 h-8 shrink-0 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+<span class="material-symbols-outlined text-sm">smart_toy</span>
+</div>
+<div class="bg-slate-100 p-4 rounded-2xl rounded-tl-none text-slate-800 font-body-md text-[16px]">
+                                    Good afternoon, Elena! I noticed your heart rate was a bit elevated during your walk today. How are you feeling right now?
+                                </div>
+</div>
+<div class="flex flex-row-reverse gap-4 ml-auto max-w-[85%]">
+<div class="w-8 h-8 shrink-0 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">E</div>
+<div class="bg-primary text-white p-4 rounded-2xl rounded-tr-none font-body-md text-[16px]">
+                                    I'm feeling okay, just a little tired. I think I might have pushed myself too much.
+                                </div>
+</div>
+<div class="flex gap-4 max-w-[85%]">
+<div class="w-8 h-8 shrink-0 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+<span class="material-symbols-outlined text-sm">smart_toy</span>
+</div>
+<div class="bg-slate-100 p-4 rounded-2xl rounded-tl-none text-slate-800 font-body-md text-[16px] space-y-3">
+<p>That makes sense. Your recovery data suggests a bit of rest would be beneficial.</p>
+<p>Would you like me to schedule a 15-minute guided breathing session to help you relax?</p>
+</div>
+</div>
+</div>
+<div class="p-4 bg-slate-50 rounded-b-xl">
+<div class="flex items-center gap-3 bg-white border border-slate-200 rounded-full px-4 py-2 focus-within:border-primary transition-colors">
+<input class="flex-1 border-none focus:ring-0 text-slate-700 bg-transparent py-2" placeholder="Type a message..." type="text"/>
+<button class="w-10 h-10 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">mic</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-primary text-white hover:bg-blue-900 transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<aside class="lg:col-span-4 space-y-gutter">
+<div class="space-y-4">
+<h3 class="font-label-lg text-label-lg text-slate-500 px-1">TODAY'S SUGGESTIONS</h3>
+<div class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm space-y-4 hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<div class="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">directions_walk</span>
+</div>
+<span class="bg-orange-100 text-orange-700 text-[10px] font-bold uppercase px-2 py-1 rounded">High Impact</span>
+</div>
+<div>
+<h4 class="font-headline-md text-[20px] mb-1">Light Exercise</h4>
+<p class="text-sm text-slate-500 leading-relaxed">A gentle 10-minute stretch could help with your lower back stiffness today.</p>
+</div>
+<button class="w-full py-3 bg-slate-50 hover:bg-slate-100 text-primary font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
+                                Start Session
+                                <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+<div class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm space-y-4 hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">water_drop</span>
+</div>
+<span class="bg-blue-100 text-blue-700 text-[10px] font-bold uppercase px-2 py-1 rounded">Daily Goal</span>
+</div>
+<div>
+<h4 class="font-headline-md text-[20px] mb-1">Hydration Check</h4>
+<p class="text-sm text-slate-500 leading-relaxed">You've reached 60% of your water goal. Time for a glass of water!</p>
+</div>
+<div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+<div class="bg-blue-500 h-full w-[60%]"></div>
+</div>
+<button class="w-full py-3 bg-secondary-container hover:bg-secondary text-on-secondary-container hover:text-white font-bold rounded-lg transition-colors">
+                                Log 250ml
+                            </button>
+</div>
+<div class="bg-gradient-to-br from-secondary-container to-[#bace99] p-6 rounded-xl shadow-sm space-y-3">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary">verified_user</span>
+<span class="font-bold text-secondary text-sm">Clinical Insight</span>
+</div>
+<p class="text-secondary text-sm font-medium italic">"Consistent light activity has been shown to reduce joint inflammation in similar profiles by 22%."</p>
+</div>
+</div>
+</aside>
+</div>
+</div>
+</main>
+<nav class="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe pt-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md rounded-t-2xl border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined">medical_services</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Health</span>
+</a>
+<a class="flex flex-col items-center justify-center text-red-600 py-2" href="#">
+<div class="bg-red-50 p-2 rounded-full mb-1">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+</div>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">SOS</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined">calendar_today</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Routine</span>
+</a>
+<a class="flex flex-col items-center justify-center text-blue-900 dark:text-blue-100 bg-blue-50 dark:bg-blue-900/60 rounded-xl px-3 py-2" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">psychology</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">AI</span>
+</a>
+</nav>
+</body></html>

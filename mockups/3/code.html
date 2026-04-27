@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+            vertical-align: middle;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#dce9ff",
+                        "primary-container": "#1e3a8a",
+                        "on-primary-fixed-variant": "#264191",
+                        "secondary-container": "#d3e7b1",
+                        "surface-variant": "#d5e3fc",
+                        "surface-container-highest": "#d5e3fc",
+                        "on-surface-variant": "#444651",
+                        "surface-container-low": "#eff4ff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary-fixed-variant": "#3c4c24",
+                        "surface-bright": "#f8f9ff",
+                        "inverse-primary": "#b6c4ff",
+                        "on-surface": "#0d1c2e",
+                        "on-tertiary-fixed-variant": "#43474b",
+                        "secondary-fixed": "#d6eab4",
+                        "primary": "#00236f",
+                        "surface-tint": "#4059aa",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed": "#dfe3e7",
+                        "inverse-surface": "#233144",
+                        "outline": "#757682",
+                        "secondary-fixed-dim": "#bace99",
+                        "tertiary-container": "#3c4144",
+                        "error": "#ba1a1a",
+                        "surface-container": "#e6eeff",
+                        "on-secondary-fixed": "#121f00",
+                        "on-background": "#0d1c2e",
+                        "on-error-container": "#93000a",
+                        "on-primary-container": "#90a8ff",
+                        "surface": "#f8f9ff",
+                        "on-primary-fixed": "#00164e",
+                        "inverse-on-surface": "#eaf1ff",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed-dim": "#c3c7cb",
+                        "on-tertiary-container": "#a8adb1",
+                        "secondary": "#536439",
+                        "surface-dim": "#ccdbf3",
+                        "on-tertiary-fixed": "#171c1f",
+                        "on-secondary-container": "#57683d",
+                        "primary-fixed": "#dce1ff",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "outline-variant": "#c5c5d3",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "background": "#f8f9ff",
+                        "tertiary": "#262b2e"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-margin": "24px",
+                        "stack-lg": "32px",
+                        "unit": "8px",
+                        "stack-sm": "8px",
+                        "stack-md": "16px",
+                        "gutter": "16px",
+                        "section-gap": "64px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Public Sans"],
+                        "label-md": ["Public Sans"],
+                        "body-lg": ["Public Sans"],
+                        "body-md": ["Public Sans"],
+                        "headline-lg": ["Public Sans"],
+                        "display": ["Public Sans"],
+                        "label-lg": ["Public Sans"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.04em", "fontWeight": "600"}],
+                        "body-lg": ["20px", {"lineHeight": "30px", "fontWeight": "400"}],
+                        "body-md": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "display": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-lg": ["16px", {"lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background font-body-md text-on-background min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-white dark:bg-slate-900 text-blue-900 dark:text-blue-400 font-public-sans antialiased docked full-width top-0 border-b border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center w-full px-6 py-3 sticky top-0 z-40">
+<div class="flex items-center gap-4">
+<span class="text-xl font-bold tracking-tight text-blue-900 dark:text-blue-50">VitalCare Professional</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+</button>
+<div class="h-10 w-10 rounded-full overflow-hidden border border-slate-200">
+<img alt="Provider profile picture" class="w-full h-full object-cover" data-alt="professional portrait of a healthcare provider in a modern clinic, soft lighting, warm and confident expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBlI__fnS-ikK-ttL7vRtcojI5-2pF8RLp23H1fWbgWFkSSgpqeNnZ3l1CNQM0c79tGRgzni8rVzNaqGVJ1BcIq9m21m0zZOwdikEdLuaOAtdGj8vCwFyf_iAWy7IgBD0ElihLGwc2JCOuHGvSderYSt8sdqNmqLXozA_0AGX8x7ghifBP3VqgxdcV34B_FOXyEhZb814TfBX_j-JYGvFkMcDyRUlNrrETKUKZK389iafeQZmSTgxItcxMLJ2kEbCJFsjxrUMMBaw"/>
+</div>
+</div>
+</header>
+<div class="flex flex-1 relative">
+<!-- SideNavBar -->
+<nav class="hidden lg:flex flex-col fixed left-0 top-0 h-full z-50 bg-slate-50 dark:bg-slate-950 text-blue-900 dark:text-blue-400 font-public-sans text-sm font-medium h-screen w-64 border-r border-slate-200 dark:border-slate-800 transition-all duration-200 ease-in-out pt-20 pb-6 px-4">
+<div class="mb-8 px-2">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-sm" data-icon="clinical_notes">clinical_notes</span>
+</div>
+<span class="text-lg font-black text-blue-900 dark:text-blue-100">Resident Care</span>
+</div>
+<p class="text-xs text-slate-500 ml-11">High Priority Monitor</p>
+</div>
+<div class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="monitor_heart">monitor_heart</span>
+<span>Health Monitor</span>
+</a>
+<!-- Active Tab: Routine -->
+<a class="flex items-center gap-3 px-3 py-3 rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-100 border-r-4 border-blue-900 dark:border-blue-400" href="#">
+<span class="material-symbols-outlined" data-icon="event_repeat" style="font-variation-settings: 'FILL' 1;">event_repeat</span>
+<span>Routine</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span>Care Team</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span>AI Insights</span>
+</a>
+</div>
+<div class="mt-auto pt-6 border-t border-slate-200 space-y-1">
+<button class="w-full mb-4 py-3 bg-error text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-error/20 active:scale-95 transition-transform">
+<span class="material-symbols-outlined" data-icon="emergency">emergency</span>
+                    EMERGENCY SOS
+                </button>
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-900 dark:hover:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Support</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 lg:ml-64 p-container-margin pb-32 lg:pb-8 max-w-7xl mx-auto w-full">
+<header class="mb-stack-lg">
+<h1 class="font-headline-lg text-headline-lg text-primary">Daily Routine &amp; Well-being</h1>
+<p class="font-body-md text-on-surface-variant">Manage your day with precision and clinical care.</p>
+</header>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+<!-- Mood Tracker Section -->
+<section class="md:col-span-12 lg:col-span-4 bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.04)] p-6 border border-slate-100 flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-4">
+<h2 class="font-headline-md text-headline-md text-blue-900">How are you feeling?</h2>
+<span class="material-symbols-outlined text-slate-400" data-icon="info">info</span>
+</div>
+<p class="font-body-md text-slate-500 mb-8">Record your mood to help the care team monitor your well-being trends.</p>
+</div>
+<div class="grid grid-cols-5 gap-2">
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-surface-container-low transition-colors group">
+<span class="material-symbols-outlined text-4xl text-slate-300 group-hover:text-error" data-icon="sentiment_very_dissatisfied">sentiment_very_dissatisfied</span>
+<span class="text-[10px] font-bold uppercase text-slate-400">Poor</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-surface-container-low transition-colors group">
+<span class="material-symbols-outlined text-4xl text-slate-300 group-hover:text-on-tertiary-fixed-variant" data-icon="sentiment_dissatisfied">sentiment_dissatisfied</span>
+<span class="text-[10px] font-bold uppercase text-slate-400">Unwell</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl bg-surface-container text-primary-container ring-2 ring-primary-container/20">
+<span class="material-symbols-outlined text-4xl" data-icon="sentiment_neutral" style="font-variation-settings: 'FILL' 1;">sentiment_neutral</span>
+<span class="text-[10px] font-bold uppercase">Neutral</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-surface-container-low transition-colors group">
+<span class="material-symbols-outlined text-4xl text-slate-300 group-hover:text-secondary" data-icon="sentiment_satisfied">sentiment_satisfied</span>
+<span class="text-[10px] font-bold uppercase text-slate-400">Good</span>
+</button>
+<button class="flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-surface-container-low transition-colors group">
+<span class="material-symbols-outlined text-4xl text-slate-300 group-hover:text-secondary-container" data-icon="sentiment_very_satisfied">sentiment_very_satisfied</span>
+<span class="text-[10px] font-bold uppercase text-slate-400">Great</span>
+</button>
+</div>
+</section>
+<!-- Today's Routine Timeline -->
+<section class="md:col-span-12 lg:col-span-8 bg-white rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.04)] p-6 border border-slate-100">
+<div class="flex items-center justify-between mb-8">
+<h2 class="font-headline-md text-headline-md text-blue-900">Today's Routine</h2>
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded-full">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-sm font-medium text-secondary">2 of 5 Tasks Completed</span>
+</div>
+</div>
+<div class="relative space-y-6 before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
+<!-- Routine Item: Breakfast (Done) -->
+<div class="relative pl-12 flex items-start gap-4">
+<div class="absolute left-0 w-10 h-10 rounded-full bg-secondary text-white flex items-center justify-center z-10">
+<span class="material-symbols-outlined text-xl" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex-1 bg-surface-container-low border border-secondary/20 p-4 rounded-xl flex justify-between items-center">
+<div>
+<h3 class="font-label-lg text-secondary">Breakfast</h3>
+<p class="text-sm text-slate-500">Completed at 8:30 AM</p>
+</div>
+<div class="w-12 h-12 rounded-lg overflow-hidden opacity-80">
+<img alt="Healthy breakfast" class="w-full h-full object-cover" data-alt="close-up of a fresh healthy breakfast with oatmeal and fruit on a bright morning table, soft focus background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZQ8NyjbNtKq7I6xa2zoPRZjn_qB02rSVK7N-3PQW8Z102G_CbmA7r78ZRnpyuSncxDqQsF3nuIPp9BwpslTIeYUGXAVLL9MXChR7ZTD2P0YrERr7AyXOhFnlIPZ43oukWdmF5h1bOvv_Q85thRAThaJgZexnqsHkGm6ewJjnzSVWLeSS28cXsow0IH9yZCxOe1x2jtbxIvtVS9_4qwB6Bnan5deOtkQ0eN8U-qLAwvHqSP7onutjlICAN4hb99KDciL3vFkGIdQ"/>
+</div>
+</div>
+</div>
+<!-- Routine Item: Morning Medication (Take button) -->
+<div class="relative pl-12 flex items-start gap-4">
+<div class="absolute left-0 w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center z-10 border-4 border-white">
+<span class="material-symbols-outlined text-xl" data-icon="medical_services">medical_services</span>
+</div>
+<div class="flex-1 bg-white border border-primary/10 p-4 rounded-xl flex justify-between items-center shadow-sm">
+<div>
+<h3 class="font-label-lg text-primary">Morning Medication</h3>
+<p class="text-sm text-slate-500">Scheduled for 10:00 AM (Overdue)</p>
+</div>
+<button class="px-6 py-2 bg-primary text-white font-bold rounded-lg text-sm active:scale-95 transition-transform">
+                                    Take Now
+                                </button>
+</div>
+</div>
+<!-- Routine Item: Afternoon Walk (Pending) -->
+<div class="relative pl-12 flex items-start gap-4">
+<div class="absolute left-0 w-10 h-10 rounded-full bg-slate-200 text-slate-400 flex items-center justify-center z-10 border-4 border-white">
+<span class="material-symbols-outlined text-xl" data-icon="directions_walk">directions_walk</span>
+</div>
+<div class="flex-1 bg-slate-50 border border-slate-100 p-4 rounded-xl flex justify-between items-center opacity-70">
+<div>
+<h3 class="font-label-lg text-slate-600">Afternoon Walk</h3>
+<p class="text-sm text-slate-400">Scheduled for 4:00 PM</p>
+</div>
+<div class="px-3 py-1 bg-slate-200 text-slate-500 rounded text-xs font-bold uppercase tracking-wider">
+                                    Upcoming
+                                </div>
+</div>
+</div>
+</div>
+</section>
+<!-- Health Summary Micro-Bento -->
+<section class="md:col-span-12 flex flex-col md:flex-row gap-gutter">
+<div class="flex-1 bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+<div class="w-14 h-14 rounded-full bg-secondary-container/30 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-3xl" data-icon="water_drop">water_drop</span>
+</div>
+<div>
+<span class="text-xs font-bold text-slate-400 uppercase">Hydration</span>
+<p class="text-xl font-bold text-blue-900">1.2L <span class="text-sm font-normal text-slate-500">/ 2.0L</span></p>
+</div>
+</div>
+<div class="flex-1 bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+<div class="w-14 h-14 rounded-full bg-primary-fixed/30 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-3xl" data-icon="bedtime">bedtime</span>
+</div>
+<div>
+<span class="text-xs font-bold text-slate-400 uppercase">Sleep Quality</span>
+<p class="text-xl font-bold text-blue-900">7h 42m <span class="text-sm font-normal text-slate-500">Deep</span></p>
+</div>
+</div>
+<div class="flex-1 bg-white p-6 rounded-xl border border-slate-100 shadow-sm flex items-center gap-4">
+<div class="w-14 h-14 rounded-full bg-error-container/30 flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-3xl" data-icon="heart_check">heart_check</span>
+</div>
+<div>
+<span class="text-xs font-bold text-slate-400 uppercase">Avg. Heart Rate</span>
+<p class="text-xl font-bold text-blue-900">72 <span class="text-sm font-normal text-slate-500">BPM</span></p>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+<!-- Floating Action Button -->
+<button class="fixed bottom-24 right-6 lg:bottom-12 lg:right-12 w-16 h-16 bg-primary text-white rounded-full shadow-2xl flex items-center justify-center group active:scale-90 transition-transform z-40">
+<span class="material-symbols-outlined text-3xl transition-transform group-hover:rotate-90" data-icon="add">add</span>
+<div class="absolute right-full mr-4 bg-white px-4 py-2 rounded-lg shadow-lg text-primary font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            Add New Reminder
+        </div>
+</button>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe pt-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined" data-icon="medical_services">medical_services</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Health</span>
+</a>
+<a class="flex flex-col items-center justify-center text-error py-2" href="#">
+<div class="bg-error/10 p-3 rounded-full mb-1">
+<span class="material-symbols-outlined" data-icon="emergency" style="font-variation-settings: 'FILL' 1;">emergency</span>
+</div>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">SOS</span>
+</a>
+<!-- Active Tab: Routine -->
+<a class="flex flex-col items-center justify-center text-blue-900 dark:text-blue-100 bg-blue-50 dark:bg-blue-900/60 rounded-xl px-3 py-1" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_today" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Routine</span>
+</a>
+<a class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 py-2" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-public-sans text-[10px] font-bold uppercase tracking-wider">Team</span>
+</a>
+</nav>
+</body></html>
