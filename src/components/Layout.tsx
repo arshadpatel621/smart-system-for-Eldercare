@@ -1,16 +1,39 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useEldercare } from '../context/EldercareContext';
+import { hasRoleAccess, navItems } from '../lib/access';
 
-const navItems = [
-  { path: '/', icon: 'dashboard', label: 'Dashboard' },
-  { path: '/health', icon: 'monitor_heart', label: 'Health Monitor' },
-  { path: '/routine', icon: 'event_repeat', label: 'Routine' },
-  { path: '/team', icon: 'group', label: 'Care Team' },
-  { path: '/insights', icon: 'psychology', label: 'AI Insights' },
-];
+async function triggerEmergency(
+  navigate: ReturnType<typeof useNavigate>,
+  createSafetyEvent: ReturnType<typeof useEldercare>['createSafetyEvent'],
+) {
+  await createSafetyEvent({
+    type: 'sos',
+    severity: 'critical',
+    occurredAt: new Date().toISOString(),
+    location: 'Dashboard navigation',
+    note: 'Emergency SOS triggered from layout control.',
+    resolved: false,
+  });
+  navigate('/sos');
+}
 
 export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { profile, role, logout } = useAuth();
+  const {
+    data,
+    derivedAlerts,
+    storageMode,
+    enableBrowserNotifications,
+    error,
+    refresh,
+    createSafetyEvent,
+    loading,
+  } = useEldercare();
+  const activeAlerts = derivedAlerts.filter((alert) => !alert.acknowledged);
+  const visibleNavItems = navItems.filter((item) => hasRoleAccess(role, item.roles));
 
   return (
     <div className="bg-background text-on-background min-h-screen flex flex-col">
@@ -21,23 +44,63 @@ export default function Layout() {
         </div>
         <div className="flex items-center gap-4">
           <div className="flex gap-2">
-            <button className="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full relative">
+            <button
+              onClick={() => void triggerEmergency(navigate, createSafetyEvent)}
+              className="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full relative"
+            >
               <span className="material-symbols-outlined text-slate-500 dark:text-slate-400">notifications</span>
-              <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full"></span>
+              {activeAlerts.length > 0 ? (
+                <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-error rounded-full text-[10px] text-white flex items-center justify-center">
+                  {activeAlerts.length}
+                </span>
+              ) : null}
             </button>
-            <button className="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full">
+            <button
+              onClick={() => void enableBrowserNotifications()}
+              className="p-2 cursor-pointer active:opacity-70 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors rounded-full"
+            >
               <span className="material-symbols-outlined text-slate-500 dark:text-slate-400">contact_support</span>
             </button>
           </div>
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
              <div className="text-right hidden sm:block">
-                 <p className="text-sm font-bold text-on-surface leading-tight">Dr. Elena Fisher</p>
-                 <p className="text-[11px] text-slate-500 font-medium">Head Caregiver</p>
+                 <p className="text-sm font-bold text-on-surface leading-tight">{profile?.fullName ?? 'User'}</p>
+                 <p className="text-[11px] text-slate-500 font-medium uppercase">{role} | {storageMode}</p>
              </div>
-             <img alt="Provider profile picture" className="w-10 h-10 rounded-full border-2 border-primary-container object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDKjjpygMLIvlxxoF4SuBTMKXjVGKA10zLMG8i-Qq3Mc1dzEmxESVWdmsdCPZPJ9j3FuWbg2txwmtcEDFZdJB8pRlphyODud-nWGcU1CiYJlMz2vj51WENlfpmR0xEm_h5OEluzOpuot56xbRrHOOKQ3UZN6UWqD8WsS_-RTiQZ2f9eJBWXQwfDxm-Q2DQaigIqGp3xSylw3Q1wWrtv28Tnn7j_dCQ_vE_k4hehKBs3ybyHhQpI5x7OHaQ0ApuCxb4CPDwGPeML5w" />
+             <button
+               onClick={() => navigate('/profile')}
+               className="overflow-hidden rounded-full border-2 border-primary-container transition hover:scale-105"
+               title="Open resident profile"
+             >
+               <img
+                 alt="Resident profile"
+                 className="h-10 w-10 object-cover"
+                 src={data?.profile.photoUrl || 'https://images.unsplash.com/photo-1581579438747-104c53d10f48?auto=format&fit=crop&w=240&q=80'}
+               />
+             </button>
           </div>
+          <button
+            onClick={() => void logout()}
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700"
+          >
+            Sign out
+          </button>
         </div>
       </header>
+
+      {error ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+            <span>{error}</span>
+            <button
+              onClick={() => void refresh()}
+              className="rounded-lg border border-amber-300 px-3 py-1 font-bold text-amber-900"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-1 relative">
         {/* SideNavBar (Desktop) */}
@@ -53,7 +116,7 @@ export default function Layout() {
           </div>
 
           <nav className="flex-1 px-4 space-y-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
                 <NavLink
@@ -79,7 +142,7 @@ export default function Layout() {
 
           <div className="p-4 space-y-4">
             <button 
-                onClick={() => navigate('/sos')}
+                onClick={() => void triggerEmergency(navigate, createSafetyEvent)}
                 className="w-full py-4 px-4 bg-[#b91c1c] text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg hover:bg-red-800 active:scale-95 transition-transform"
             >
               <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -88,11 +151,17 @@ export default function Layout() {
               EMERGENCY SOS
             </button>
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
-              <button className="w-full flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium transition-colors">
+              <button
+                onClick={() => navigate('/settings')}
+                className="w-full flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium transition-colors"
+              >
                 <span className="material-symbols-outlined">settings</span>
                 Settings
               </button>
-              <button className="w-full flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium transition-colors">
+              <button
+                onClick={() => navigate('/support')}
+                className="w-full flex items-center gap-3 px-4 py-2 text-slate-500 hover:text-blue-900 text-sm font-medium transition-colors"
+              >
                 <span className="material-symbols-outlined">help</span>
                 Support
               </button>
@@ -102,13 +171,13 @@ export default function Layout() {
 
         {/* Main Content */}
         <main className="flex-1 lg:ml-64 p-6 lg:p-10 pb-24 lg:pb-10 max-w-7xl mx-auto w-full">
-          <Outlet />
+          {loading ? <div className="text-slate-500">Loading screen data...</div> : <Outlet />}
         </main>
       </div>
 
       {/* BottomNavBar (Mobile) */}
       <nav className="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe pt-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] rounded-t-2xl">
-         {navItems.slice(0, 2).map((item) => {
+         {visibleNavItems.slice(0, 2).map((item) => {
              const isActive = location.pathname === item.path;
              return (
                  <NavLink
@@ -131,7 +200,7 @@ export default function Layout() {
              <span className="font-public-sans text-[10px] font-bold uppercase tracking-wider mt-1 text-error">SOS</span>
          </NavLink>
 
-         {navItems.slice(2, 4).map((item) => {
+         {visibleNavItems.slice(2, 4).map((item) => {
              const isActive = location.pathname === item.path;
              return (
                  <NavLink

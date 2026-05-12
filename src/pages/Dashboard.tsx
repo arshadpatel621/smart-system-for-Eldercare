@@ -1,161 +1,161 @@
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useEldercare } from '../context/EldercareContext';
+import { hasRoleAccess, roleAccess } from '../lib/access';
+
+function getNextMedication(data: NonNullable<ReturnType<typeof useEldercare>['data']>) {
+  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const items = data.medications
+    .filter((medication) => medication.active)
+    .flatMap((medication) =>
+      medication.schedule.map((time) => ({
+        medication,
+        time,
+        iso: `${today}T${time}:00`,
+      })),
+    )
+    .filter((entry) => {
+      const alreadyTaken = data.medicationLogs.some(
+        (log) => log.medicationId === entry.medication.id && log.scheduledFor.startsWith(entry.iso),
+      );
+      return !alreadyTaken;
+    })
+    .sort((left, right) => new Date(left.iso).getTime() - new Date(right.iso).getTime());
+
+  return items.find((entry) => new Date(entry.iso).getTime() >= now.getTime()) ?? items[0];
+}
+
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const { role } = useAuth();
+  const { data, latestVitals, derivedAlerts, recommendations, storageMode } = useEldercare();
+
+  if (!data || !latestVitals) {
+    return <div className="text-slate-500">Loading dashboard...</div>;
+  }
+
+  const nextMedication = getNextMedication(data);
+  const unacknowledged = derivedAlerts.filter((alert) => !alert.acknowledged);
+  const primaryAlert = unacknowledged[0];
+
+  const quickLinks = [
+    { label: 'Health monitor', path: '/health', roles: roleAccess.all },
+    { label: 'Resident profile', path: '/profile', roles: roleAccess.all },
+    { label: 'Live monitor', path: '/camera', roles: roleAccess.careTeam },
+    { label: 'Care team', path: '/team', roles: roleAccess.careTeam },
+  ].filter((item) => hasRoleAccess(role, item.roles));
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* SOS Banner */}
-      <div className="bg-error text-white p-4 rounded-2xl flex items-center justify-between clinical-shadow">
-        <div className="flex items-center gap-4">
-          <div className="bg-white/20 p-2 rounded-xl">
-            <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>warning</span>
-          </div>
+      <div className="rounded-3xl bg-primary p-6 text-white shadow-xl">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="font-headline-md text-white">Emergency Response Active</h2>
-            <p className="text-white/80 text-sm">Rapid assistance protocols are ready for instant activation.</p>
+            <p className="text-sm uppercase tracking-[0.2em] text-blue-100">Resident status</p>
+            <h1 className="mt-2 text-4xl font-black">{data.profile.fullName}</h1>
+            <p className="mt-2 max-w-2xl text-blue-100">
+              Firebase-backed elder profile, reminders, safety events, and smartwatch sync are now wired into the app.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/10 px-5 py-4 text-right backdrop-blur">
+            <div className="text-sm uppercase tracking-widest text-blue-100">{storageMode} mode</div>
+            <div className="mt-1 text-2xl font-bold">{unacknowledged.length} active alerts</div>
           </div>
         </div>
-        <button className="bg-white text-error font-bold px-6 py-2 rounded-full hover:bg-slate-100 transition-colors">
-          View Protocols
-        </button>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
-        {/* Risk Score Widget */}
-        <div className="col-span-12 lg:col-span-4 bg-white p-8 rounded-2xl clinical-shadow border border-slate-100 flex flex-col justify-between overflow-hidden relative">
-          <div className="relative z-10">
-            <h3 className="text-slate-500 font-label-md uppercase tracking-widest mb-1">Health Stability</h3>
-            <p className="font-headline-lg text-primary">Risk Score</p>
-          </div>
-          
-          <div className="my-6 flex items-center justify-center relative z-10">
-            <div className="relative flex items-center justify-center">
-              <svg className="w-40 h-40 transform -rotate-90">
-                <circle className="text-slate-100" cx="80" cy="80" fill="transparent" r="70" stroke="currentColor" strokeWidth="12"></circle>
-                <circle className="text-secondary" cx="80" cy="80" fill="transparent" r="70" stroke="currentColor" strokeDasharray="440" strokeDashoffset="374" strokeWidth="12" strokeLinecap="round"></circle>
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-5xl font-black text-primary">15</span>
-                <span className="text-xs font-bold text-secondary uppercase tracking-tighter">Low Risk</span>
-              </div>
-            </div>
-          </div>
-          
-          <p className="text-sm text-slate-500 leading-relaxed relative z-10">Patient is demonstrating 94% stability over the last 72 hours. No immediate interventions required.</p>
-          <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-secondary/10 rounded-full blur-3xl"></div>
-        </div>
-
-        {/* Summary Health Cards Cluster */}
-        <div className="col-span-12 lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Heart Rate */}
-          <div className="bg-white p-6 rounded-2xl clinical-shadow border border-slate-100 flex items-center gap-6 hover:-translate-y-1 transition-transform">
-            <div className="w-16 h-16 rounded-2xl bg-error/10 flex items-center justify-center text-error">
-              <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>favorite</span>
-            </div>
-            <div>
-              <p className="text-slate-500 font-label-md uppercase">Heart Rate</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-primary">72</span>
-                <span className="text-slate-400 font-bold">BPM</span>
-              </div>
-              <span className="text-secondary text-xs font-bold flex items-center gap-1 mt-1">
-                <span className="material-symbols-outlined text-sm">trending_flat</span> Steady
-              </span>
-            </div>
-          </div>
-
-          {/* Blood Pressure */}
-          <div className="bg-white p-6 rounded-2xl clinical-shadow border border-slate-100 flex items-center gap-6 hover:-translate-y-1 transition-transform">
-            <div className="w-16 h-16 rounded-2xl bg-primary-container/10 flex items-center justify-center text-primary-container">
-              <span className="material-symbols-outlined text-3xl">blood_pressure</span>
-            </div>
-            <div>
-              <p className="text-slate-500 font-label-md uppercase">Blood Pressure</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-primary">120/80</span>
-                <span className="text-slate-400 font-bold">mmHg</span>
-              </div>
-              <span className="text-secondary text-xs font-bold flex items-center gap-1 mt-1">
-                <span className="material-symbols-outlined text-sm">check_circle</span> Optimal
-              </span>
-            </div>
-          </div>
-
-          {/* Activity */}
-          <div className="bg-white p-6 rounded-2xl clinical-shadow border border-slate-100 flex items-center gap-6 hover:-translate-y-1 transition-transform">
-            <div className="w-16 h-16 rounded-2xl bg-secondary-container/30 flex items-center justify-center text-secondary">
-              <span className="material-symbols-outlined text-3xl">directions_walk</span>
-            </div>
-            <div className="flex-1">
-              <p className="text-slate-500 font-label-md uppercase">Activity</p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-black text-primary">4,820</span>
-                <span className="text-slate-400 font-bold">Steps</span>
-              </div>
-              <div className="mt-2 w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                <div className="bg-secondary h-full w-[65%] rounded-full"></div>
-              </div>
-            </div>
-          </div>
-
-          {/* Next Reminder */}
-          <div className="bg-gradient-to-br from-primary to-blue-900 text-white p-6 rounded-2xl clinical-shadow flex flex-col justify-between relative overflow-hidden group">
-            <div className="relative z-10">
-                <div className="flex justify-between items-start">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="grid gap-6 lg:col-span-8 md:grid-cols-2">
+          {[
+            ['Heart rate', `${latestVitals.heartRate?.value ?? '--'} bpm`, 'favorite'],
+            ['SpO2', `${latestVitals.spo2?.value ?? '--'}%`, 'bloodtype'],
+            ['Steps', `${latestVitals.steps?.value ?? '--'}`, 'directions_walk'],
+            ['Sleep', `${latestVitals.sleep?.value ?? '--'} hrs`, 'dark_mode'],
+          ].map(([label, value, icon]) => (
+            <div key={label} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between">
                 <div>
-                    <p className="text-white/70 font-label-md uppercase text-xs tracking-wider">Next Medication</p>
-                    <h4 className="text-xl font-bold mt-1">Lisinopril • 10mg</h4>
+                  <div className="text-sm font-bold uppercase tracking-widest text-slate-400">{label}</div>
+                  <div className="mt-2 text-4xl font-black text-primary">{value}</div>
                 </div>
-                <div className="bg-white/10 p-2 rounded-lg">
-                    <span className="material-symbols-outlined text-white">schedule</span>
+                <div className="rounded-2xl bg-slate-50 p-4 text-primary">
+                  <span className="material-symbols-outlined text-3xl">{icon}</span>
                 </div>
-                </div>
-                <div className="flex items-center justify-between mt-4">
-                <span className="text-white/90 font-bold flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
-                    Due: 14:30 PM
-                </span>
-                <button className="bg-secondary text-primary font-black px-6 py-2 rounded-xl text-sm hover:brightness-110 transition-all active:scale-95">
-                    Taken
-                </button>
-                </div>
+              </div>
             </div>
-            <div className="absolute -right-8 -bottom-8 w-32 h-32 bg-white/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
+          ))}
+        </div>
+
+        <div className="space-y-6 lg:col-span-4">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-sm font-bold uppercase tracking-widest text-slate-400">Next medication</div>
+            {nextMedication ? (
+              <>
+                <h2 className="mt-2 text-2xl font-bold text-primary">{nextMedication.medication.name}</h2>
+                <p className="mt-1 text-slate-500">{nextMedication.medication.dosage} • {nextMedication.time}</p>
+                <button
+                  onClick={() => navigate('/routine')}
+                  className="mt-4 rounded-xl bg-secondary px-5 py-3 font-bold text-white"
+                >
+                  Open routine
+                </button>
+              </>
+            ) : (
+              <p className="mt-2 text-slate-500">All medications are logged for today.</p>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-sm font-bold uppercase tracking-widest text-slate-400">Priority alert</div>
+            {primaryAlert ? (
+              <>
+                <h2 className="mt-2 text-xl font-bold text-primary">{primaryAlert.title}</h2>
+                <p className="mt-2 text-sm text-slate-500">{primaryAlert.message}</p>
+                <button
+                  onClick={() => navigate('/sos')}
+                  className="mt-4 rounded-xl border border-primary px-5 py-3 font-bold text-primary"
+                >
+                  Review safety
+                </button>
+              </>
+            ) : (
+              <p className="mt-2 text-slate-500">No urgent issues detected.</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-primary">Today's care suggestions</h2>
+            <button onClick={() => navigate('/insights')} className="text-sm font-bold text-primary">
+              View all
+            </button>
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {recommendations.slice(0, 4).map((item) => (
+              <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
+                <div className="text-xs font-bold uppercase tracking-widest text-slate-400">{item.category}</div>
+                <div className="mt-1 text-lg font-bold text-slate-800">{item.title}</div>
+                <p className="mt-2 text-sm text-slate-500">{item.description}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Secondary Actions Section */}
-        <div className="col-span-12 grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
-          {/* Book Caregiver Box */}
-          <div className="group cursor-pointer bg-surface-container-low p-1 rounded-3xl border border-transparent hover:border-primary-container transition-all">
-            <div className="bg-white p-8 rounded-[22px] flex items-center gap-8 shadow-sm">
-              <div className="w-24 h-24 rounded-2xl overflow-hidden shadow-lg">
-                <img alt="Caregiver profile" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBwpJlfmkk0IzVAln9gcwVyWi9F6nUBcjjpafd86iqeK1WSFma9RygttlFDy8fZpMdol_9kdJ2CTmSLiQtzlPFpUbV4vyU6AnH2siKRjFrQEln79nY_FV5mgc5rf3IFaSdXxkXS43d6Bta2j5hNbiVCspFIlvLdHA_-tSRduDRogQKi7lvkAkNvOksBTCQfjhMwVvgjqRtmYKMGu91WCtLtHrVb1NUa4B45HAIhS2hiiXXM3NCsXwFpeeEzX0IgtUJrYp2Eo3CBcQ" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-primary font-headline-md">Book Specialized Care</h3>
-                <p className="text-slate-500 mt-1 mb-4 text-sm">On-demand support for physical therapy, meals, or companionship.</p>
-                <div className="flex items-center text-primary-container font-bold text-sm gap-2">
-                  <span>Schedule Now</span>
-                  <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Voice Assistant Box */}
-          <div className="group cursor-pointer bg-secondary-container/20 p-1 rounded-3xl border border-transparent hover:border-secondary transition-all">
-            <div className="bg-white p-8 rounded-[22px] flex items-center gap-8 shadow-sm">
-              <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-white shadow-lg shadow-secondary/20 relative overflow-hidden">
-                <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-                <span className="material-symbols-outlined text-5xl relative z-10 group-hover:scale-110 transition-transform">mic</span>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-primary font-headline-md">Voice Assistant</h3>
-                <p className="text-slate-500 mt-1 mb-4 text-sm">Hands-free control for patient logging and status updates.</p>
-                <div className="flex items-center text-secondary font-bold text-sm gap-2">
-                  <span>Start Session</span>
-                  <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
-                </div>
-              </div>
-            </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-2xl font-bold text-primary">Quick actions</h2>
+          <div className="mt-5 grid gap-3">
+            {quickLinks.map((item) => (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className="rounded-2xl bg-slate-50 px-4 py-4 text-left font-bold text-slate-700 transition hover:bg-slate-100"
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
       </div>

@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasUserProfile() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function role() {
+      return hasUserProfile() ? userDoc().data.role : null;
+    }
+
+    function assignedElderId() {
+      return hasUserProfile() ? userDoc().data.elderId : null;
+    }
+
+    function isAdmin() {
+      return role() == 'admin';
+    }
+
+    function canAccessElder(elderId) {
+      return isAdmin() || assignedElderId() == elderId;
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow read, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /elders/{elderId} {
+      allow read, write: if signedIn() && canAccessElder(elderId);
+
+      match /{document=**} {
+        allow read, write: if signedIn() && canAccessElder(elderId);
+      }
+    }
+  }
+}
