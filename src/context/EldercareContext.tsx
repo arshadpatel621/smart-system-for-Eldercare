@@ -69,12 +69,18 @@ async function requestNotificationPermission() {
 
 export function EldercareProvider({ children }: { children: ReactNode }) {
   const { profile, loading: authLoading } = useAuth();
-  const [data, setData] = useState<EldercareData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const activeElderId = profile?.elderId;
+
+  const [data, setData] = useState<EldercareData | null>(() => {
+    if (activeElderId) {
+      return loadLocalEldercareData(activeElderId);
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastNotificationId = useRef<string | null>(null);
   const storageMode = getStorageMode();
-  const activeElderId = profile?.elderId;
 
   const refresh = async () => {
     if (!activeElderId) {
@@ -82,23 +88,26 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    
+    // Only show loading if we don't have ANY data yet
+    if (!data) setLoading(true);
+    
     setError(null);
     try {
       const result = await loadEldercareData(activeElderId);
       setData(result);
     } catch (loadError) {
-      setError(formatFirebaseError(loadError));
-      setData(loadLocalEldercareData(activeElderId));
+      console.warn('Firebase data load failed, using local/cached data:', loadError);
+      if (!data) {
+        setData(loadLocalEldercareData(activeElderId));
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (authLoading) {
-      return;
-    }
+    if (authLoading) return;
     void refresh();
   }, [authLoading, activeElderId]);
 

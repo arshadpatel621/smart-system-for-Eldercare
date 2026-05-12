@@ -4,14 +4,15 @@ import type { UserRole } from '../types/auth';
 
 export default function ProtectedRoute({ allowedRoles }: { allowedRoles: UserRole[] }) {
   const location = useLocation();
-  const { user, profile, loading, role } = useAuth();
+  const { user, profile, initializing, role } = useAuth();
 
-  if (loading) {
+  if (initializing) {
     return <div className="flex min-h-screen items-center justify-center text-slate-500">Checking account access...</div>;
   }
 
-  if (!user || !profile) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  // Guest Mode is the default, so we no longer redirect to login.
+  if (!profile) {
+    return <div className="flex min-h-screen items-center justify-center text-slate-500 font-medium">Preparing VitalCare Workspace...</div>;
   }
 
   if (!allowedRoles.includes(role!)) {

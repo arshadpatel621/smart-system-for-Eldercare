@@ -68,15 +68,25 @@ export async function loadEldercareData(targetElderId = defaultElderId) {
     return seeded;
   }
 
+  const [contacts, metrics, medications, medicationLogs, devices, safetyEvents, alerts] = await Promise.all([
+    loadRemoteCollection<CareContact>('contacts', targetElderId),
+    loadRemoteCollection<HealthMetric>('metrics', targetElderId),
+    loadRemoteCollection<Medication>('medications', targetElderId),
+    loadRemoteCollection<MedicationLog>('medicationLogs', targetElderId),
+    loadRemoteCollection<DeviceConnection>('devices', targetElderId),
+    loadRemoteCollection<SafetyEvent>('safetyEvents', targetElderId),
+    loadRemoteCollection<AlertRecord>('alerts', targetElderId),
+  ]);
+
   return {
     profile: { id: profileSnapshot.id, ...profileSnapshot.data() } as ElderProfile,
-    contacts: await loadRemoteCollection<CareContact>('contacts', targetElderId),
-    metrics: await loadRemoteCollection<HealthMetric>('metrics', targetElderId),
-    medications: await loadRemoteCollection<Medication>('medications', targetElderId),
-    medicationLogs: await loadRemoteCollection<MedicationLog>('medicationLogs', targetElderId),
-    devices: await loadRemoteCollection<DeviceConnection>('devices', targetElderId),
-    safetyEvents: await loadRemoteCollection<SafetyEvent>('safetyEvents', targetElderId),
-    alerts: await loadRemoteCollection<AlertRecord>('alerts', targetElderId),
+    contacts,
+    metrics,
+    medications,
+    medicationLogs,
+    devices,
+    safetyEvents,
+    alerts,
   } satisfies EldercareData;
 }
 
@@ -251,16 +261,17 @@ export async function seedFirebaseFromDemo(targetElderId = defaultElderId, fullN
 
 export async function ensureEldercareRecord(targetElderId = defaultElderId, fullName?: string) {
   if (!hasFirebaseConfig || !db) {
-    return loadLocalEldercareData(targetElderId, fullName);
+    loadLocalEldercareData(targetElderId, fullName);
+    return;
   }
 
   const elderRef = doc(db, 'elders', targetElderId);
   const snapshot = await getDoc(elderRef);
   if (snapshot.exists()) {
-    return loadEldercareData(targetElderId);
+    return;
   }
 
-  return seedFirebaseFromDemo(targetElderId, fullName);
+  await seedFirebaseFromDemo(targetElderId, fullName);
 }
 
 export function getStorageMode() {

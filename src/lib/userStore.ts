@@ -9,7 +9,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider } from './firebase';
+import { auth, db, elderId as defaultElderId, googleProvider } from './firebase';
 import { ensureEldercareRecord, formatFirebaseError } from './eldercareStore';
 import type { AppUserProfile, UserRole } from '../types/auth';
 
@@ -27,26 +27,65 @@ interface GoogleSignInInput {
   fullName?: string;
 }
 
+const USER_PROFILE_CACHE_KEY = 'eldercare-user-profile';
+
 function userRef(uid: string) {
   return doc(db!, 'users', uid);
 }
 
+function cacheKey(uid: string) {
+  return `${USER_PROFILE_CACHE_KEY}:${uid}`;
+}
+
+function readCachedProfile(uid: string) {
+  try {
+    const raw = window.localStorage.getItem(cacheKey(uid));
+    if (!raw) {
+      return null;
+    }
+    return JSON.parse(raw) as AppUserProfile;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedProfile(profile: AppUserProfile) {
+  try {
+    window.localStorage.setItem(cacheKey(profile.uid), JSON.stringify(profile));
+  } catch {
+    // Ignore cache write failures.
+  }
+}
+
 export async function getUserProfile(uid: string) {
+  const cached = readCachedProfile(uid);
+
   if (!db) {
-    return null;
+    return cached;
   }
 
-  const snapshot = await getDoc(userRef(uid));
-  if (!snapshot.exists()) {
-    return null;
-  }
+  try {
+    const snapshot = await getDoc(userRef(uid));
+    if (!snapshot.exists()) {
+      return cached;
+    }
 
-  return snapshot.data() as AppUserProfile;
+    const profile = snapshot.data() as AppUserProfile;
+    writeCachedProfile(profile);
+    return profile;
+  } catch (error) {
+    if (cached) {
+      return cached;
+    }
+    throw error;
+  }
 }
 
 export async function saveUserProfile(profile: AppUserProfile) {
+  writeCachedProfile(profile);
+
   if (!db) {
-    throw new Error('Firestore is not available for user profile storage.');
+    return profile;
   }
 
   await setDoc(userRef(profile.uid), profile, { merge: true });
@@ -70,7 +109,6 @@ export async function signUpWithEmail(input: SignUpInput) {
     throw new Error('Firebase Auth is not available.');
   }
 
-  await setPersistence(auth, browserLocalPersistence);
   const result = await createUserWithEmailAndPassword(auth, input.email, input.password);
   await updateProfile(result.user, { displayName: input.fullName });
 
@@ -85,15 +123,7 @@ export async function signInWithEmail(input: { email: string; password: string }
     throw new Error('Firebase Auth is not available.');
   }
 
-  await setPersistence(auth, browserLocalPersistence);
-  const result = await signInWithEmailAndPassword(auth, input.email, input.password);
-  const profile = await getUserProfile(result.user.uid);
-
-  if (!profile) {
-    throw new Error('Account profile is missing. Please contact admin or sign up again.');
-  }
-
-  return profile;
+  await signInWithEmailAndPassword(auth, input.email, input.password);
 }
 
 export async function signInWithGoogleAccount(input: GoogleSignInInput) {
@@ -101,18 +131,14 @@ export async function signInWithGoogleAccount(input: GoogleSignInInput) {
     throw new Error('Firebase Auth is not available.');
   }
 
-  await setPersistence(auth, browserLocalPersistence);
   const result = await signInWithPopup(auth, googleProvider);
   const existing = await getUserProfile(result.user.uid);
 
-  if (existing) {
-    return existing;
+  if (!existing) {
+    const profile = buildUserProfile(result.user, input.role, input.elderId, 'google', input.fullName);
+    await saveUserProfile(profile);
+    await ensureEldercareRecord(input.elderId, input.role === 'elder' ? input.fullName : undefined);
   }
-
-  const profile = buildUserProfile(result.user, input.role, input.elderId, 'google', input.fullName);
-  await saveUserProfile(profile);
-  await ensureEldercareRecord(input.elderId, input.role === 'elder' ? input.fullName : undefined);
-  return profile;
 }
 
 export async function signOutUser() {

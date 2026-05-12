@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -23,6 +24,7 @@ interface AuthContextValue {
   profile: AppUserProfile | null;
   role: UserRole | null;
   loading: boolean;
+  initializing: boolean;
   error: string | null;
   signIn: (input: { email: string; password: string }) => Promise<void>;
   signUp: (input: {
@@ -33,68 +35,77 @@ interface AuthContextValue {
     elderId: string;
   }) => Promise<void>;
   signInWithGoogle: (input: { role: UserRole; elderId: string; fullName?: string }) => Promise<void>;
+  enableGuestMode: () => void;
   logout: () => Promise<void>;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const GUEST_PROFILE: AppUserProfile = {
+  uid: 'guest-user',
+  fullName: 'Guest Admin',
+  email: 'guest@vitalcare.local',
+  role: 'admin',
+  elderId: 'demo-resident',
+  authProvider: 'password',
+  createdAt: new Date().toISOString(),
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<AppUserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  
+  // Start with guest profile immediately to skip loading screens
+  const [profile, setProfile] = useState<AppUserProfile | null>(() => {
+    const cached = window.localStorage.getItem('eldercare-guest-session');
+    return cached ? JSON.parse(cached) : GUEST_PROFILE;
+  });
+
+  const [initializing, setInitializing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const profileRef = useRef<AppUserProfile | null>(null);
 
   useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      setError('Firebase Auth is not configured.');
-      return;
-    }
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    if (!auth) return;
 
     const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
-      setLoading(true);
       setUser(nextUser);
 
       if (!nextUser) {
-        setProfile(null);
-        setLoading(false);
+        // Stay as guest or cached guest
         return;
       }
 
       try {
         const nextProfile = await getUserProfile(nextUser.uid);
-        if (!nextProfile) {
-          setError('User profile is missing. Complete signup or ask an admin to create your access.');
-          setProfile(null);
-        } else {
+        if (nextProfile) {
           setProfile(nextProfile);
           setError(null);
         }
       } catch (profileError) {
-        setError(formatFirebaseError(profileError));
-        setProfile(null);
-      } finally {
-        setLoading(false);
+        console.error('Profile sync error:', profileError);
       }
     });
 
     return unsubscribe;
   }, []);
 
-  const runAuthAction = async (action: () => Promise<AppUserProfile | void>) => {
+  const runAuthAction = async (action: () => Promise<void>) => {
     setError(null);
     setLoading(true);
     try {
-      const result = await action();
-      if (result) {
-        setProfile(result);
-      }
+      await action();
+      // We don't set loading to false here, because onAuthStateChanged will handle it.
+      // This prevents the "loading flicker" or premature loading=false.
     } catch (authError) {
       setError(formatFirebaseError(authError));
+      setLoading(false); // Only set loading to false if there was an error, as onAuthStateChanged won't fire.
       throw authError;
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -104,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       role: profile?.role ?? null,
       loading,
+      initializing,
       error,
       signIn: async (input) => {
         await runAuthAction(() => signInWithEmail(input));
@@ -114,9 +126,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithGoogle: async (input) => {
         await runAuthAction(() => signInWithGoogleAccount(input));
       },
+      enableGuestMode: () => {
+        const guestProfile: AppUserProfile = {
+          uid: 'guest-user',
+          fullName: 'Guest Admin',
+          email: 'guest@vitalcare.local',
+          role: 'admin',
+          elderId: 'demo-resident',
+          authProvider: 'password',
+          createdAt: new Date().toISOString(),
+        };
+        setProfile(guestProfile);
+        window.localStorage.setItem('eldercare-guest-session', JSON.stringify(guestProfile));
+      },
       logout: async () => {
         await signOutUser();
         setProfile(null);
+        window.localStorage.removeItem('eldercare-guest-session');
       },
       clearError: () => setError(null),
     }),

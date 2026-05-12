@@ -79,12 +79,21 @@ export default function Layout() {
                />
              </button>
           </div>
-          <button
-            onClick={() => void logout()}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700"
-          >
-            Sign out
-          </button>
+          {profile?.uid === 'guest-user' ? (
+            <button
+              onClick={() => navigate('/signup')}
+              className="rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-500/20 hover:scale-105 transition-transform"
+            >
+              Join VitalCare
+            </button>
+          ) : (
+            <button
+              onClick={() => void logout()}
+              className="rounded-full border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Sign out
+            </button>
+          )}
         </div>
       </header>
 
@@ -171,7 +180,12 @@ export default function Layout() {
 
         {/* Main Content */}
         <main className="flex-1 lg:ml-64 p-6 lg:p-10 pb-24 lg:pb-10 max-w-7xl mx-auto w-full">
-          {loading ? <div className="text-slate-500">Loading screen data...</div> : <Outlet />}
+          {loading && (
+            <div className="mb-4 text-xs font-bold text-blue-500/50 uppercase tracking-widest animate-pulse">
+              Syncing live data...
+            </div>
+          )}
+          <Outlet />
         </main>
       </div>
 
