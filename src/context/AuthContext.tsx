@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return cached ? JSON.parse(cached) : GUEST_PROFILE;
   });
 
-  const [initializing, setInitializing] = useState(false);
+  const [initializing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const profileRef = useRef<AppUserProfile | null>(null);
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const runAuthAction = async (action: () => Promise<void>) => {
+  const runAuthAction = async (action: () => Promise<any>) => {
     setError(null);
     setLoading(true);
     try {

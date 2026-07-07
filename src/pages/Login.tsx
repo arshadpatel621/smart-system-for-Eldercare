@@ -10,8 +10,8 @@ export default function Login() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [googleRole, setGoogleRole] = useState<UserRole>('caregiver');
-  const [googleElderId, setGoogleElderId] = useState('demo-resident');
+  const [googleRole] = useState<UserRole>('caregiver');
+  const [googleElderId] = useState('demo-resident');
 
   useEffect(() => {
     if (user && !profile) {

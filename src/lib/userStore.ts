@@ -1,7 +1,5 @@
 import {
-  browserLocalPersistence,
   createUserWithEmailAndPassword,
-  setPersistence,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -9,7 +7,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, elderId as defaultElderId, googleProvider } from './firebase';
+import { auth, db, googleProvider } from './firebase';
 import { ensureEldercareRecord, formatFirebaseError } from './eldercareStore';
 import type { AppUserProfile, UserRole } from '../types/auth';
 

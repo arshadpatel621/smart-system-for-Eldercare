@@ -12,6 +12,8 @@ const CareTeam = lazy(() => import('./pages/CareTeam'));
 const AIInsights = lazy(() => import('./pages/AIInsights'));
 const ResidentProfile = lazy(() => import('./pages/ResidentProfile'));
 const LiveMonitor = lazy(() => import('./pages/LiveMonitor'));
+const CameraManagement = lazy(() => import('./pages/CameraManagement'));
+const CameraDiscovery = lazy(() => import('./pages/CameraDiscovery'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Support = lazy(() => import('./pages/Support'));
 const Login = lazy(() => import('./pages/Login'));
@@ -46,6 +48,8 @@ function App() {
             <Route element={<ProtectedRoute allowedRoles={roleAccess.careTeam} />}>
               <Route path="team" element={withSuspense(<CareTeam />)} />
               <Route path="camera" element={withSuspense(<LiveMonitor />)} />
+              <Route path="cameras" element={withSuspense(<CameraManagement />)} />
+              <Route path="discover" element={withSuspense(<CameraDiscovery />)} />
             </Route>
           </Route>
           <Route path="/sos" element={withSuspense(<Safety />)} />
