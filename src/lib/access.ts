@@ -13,10 +13,9 @@ export const navItems = [
   { path: '/insights', icon: 'psychology', label: 'AI Insights', roles: roleAccess.all },
   { path: '/camera', icon: 'videocam', label: 'Live Monitor', roles: roleAccess.careTeam },
   { path: '/cameras', icon: 'video_settings', label: 'Camera Mgmt', roles: roleAccess.careTeam },
-  { path: '/discover', icon: 'wifi_find', label: 'Discover', roles: roleAccess.careTeam },
-  { path: '/profile', icon: 'person', label: 'Resident Profile', roles: roleAccess.all },
+  { path: '/notifications', icon: 'notifications', label: 'Notifications', roles: roleAccess.all },
+  { path: '/emergency', icon: 'emergency', label: 'Emergency Center', roles: roleAccess.all },
   { path: '/settings', icon: 'settings', label: 'Settings', roles: roleAccess.all },
-  { path: '/support', icon: 'help', label: 'Support', roles: roleAccess.all },
 ];
 
 export function hasRoleAccess(role: UserRole | null | undefined, allowedRoles: UserRole[]) {

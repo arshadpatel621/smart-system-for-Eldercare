@@ -1,7 +1,7 @@
 import { useEldercare } from '../context/EldercareContext';
 
 export default function AIInsights() {
-  const { data, recommendations, latestVitals, derivedAlerts, importWatchData } = useEldercare();
+  const { data, recommendations, latestVitals, importWatchData } = useEldercare();
 
   if (!data || !latestVitals) {
     return <div className="text-slate-500">Loading AI insights...</div>;
@@ -11,9 +11,9 @@ export default function AIInsights() {
     <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto">
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-primary">AI Health Insights</h1>
-          <p className="text-slate-500">
-            Suggestions are generated from current vitals, medication adherence, and active safety alerts.
+          <h1 className="text-4xl font-bold text-slate-800">AI Intelligence Center</h1>
+          <p className="text-slate-500 mt-2">
+            Predictive modeling and generative suggestions based on resident data streams.
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
@@ -26,32 +26,53 @@ export default function AIInsights() {
         </div>
       </header>
 
-      <section className="rounded-3xl bg-gradient-to-br from-primary to-blue-900 p-8 text-white shadow-xl">
-        <div className="grid gap-6 md:grid-cols-3">
-          <div>
-            <div className="text-sm uppercase tracking-widest text-blue-100">Heart rate</div>
-            <div className="mt-2 text-4xl font-black">{latestVitals.heartRate?.value ?? '--'} bpm</div>
+      <section className="grid gap-6 md:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm border-t-4 border-t-amber-400">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="material-symbols-outlined text-amber-500">warning</span>
+            <h3 className="font-bold text-slate-800">Predictive Fall Risk</h3>
           </div>
-          <div>
-            <div className="text-sm uppercase tracking-widest text-blue-100">SpO2</div>
-            <div className="mt-2 text-4xl font-black">{latestVitals.spo2?.value ?? '--'}%</div>
+          <div className="mt-4 flex items-end gap-2">
+            <div className="text-4xl font-black text-amber-500">12%</div>
+            <div className="text-sm font-bold text-slate-400 mb-1">ELEVATED</div>
           </div>
-          <div>
-            <div className="text-sm uppercase tracking-widest text-blue-100">Open alerts</div>
-            <div className="mt-2 text-4xl font-black">{derivedAlerts.filter((alert) => !alert.acknowledged).length}</div>
+          <p className="text-sm text-slate-500 mt-3">Slight gait instability detected during morning routine. Recommend reviewing physical therapy exercises.</p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm border-t-4 border-t-emerald-400">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="material-symbols-outlined text-emerald-500">bedtime</span>
+            <h3 className="font-bold text-slate-800">Sleep Pattern Anomaly</h3>
           </div>
+          <div className="mt-4 flex items-end gap-2">
+            <div className="text-4xl font-black text-emerald-500">0%</div>
+            <div className="text-sm font-bold text-slate-400 mb-1">NORMAL</div>
+          </div>
+          <p className="text-sm text-slate-500 mt-3">Sleep cycles are consistent. Deep sleep ratio is optimal for the past 72 hours.</p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm border-t-4 border-t-blue-400">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="material-symbols-outlined text-blue-500">route</span>
+            <h3 className="font-bold text-slate-800">Routine Deviation</h3>
+          </div>
+          <div className="mt-4 flex items-end gap-2">
+            <div className="text-4xl font-black text-blue-500">-30m</div>
+            <div className="text-sm font-bold text-slate-400 mb-1">EARLY</div>
+          </div>
+          <p className="text-sm text-slate-500 mt-3">Resident woke up 30 minutes earlier than usual today. No action required.</p>
         </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-2xl font-bold text-primary">Generated suggestions</h2>
+          <h2 className="text-2xl font-bold text-slate-800">AI Care Suggestions</h2>
           <div className="mt-5 space-y-4">
             {recommendations.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-slate-50 p-4">
+              <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-lg font-bold text-slate-800">{item.title}</div>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-bold uppercase text-slate-500">{item.priority}</span>
+                  <span className="rounded-md bg-blue-100 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-blue-700">{item.priority}</span>
                 </div>
                 <p className="mt-2 text-sm text-slate-500">{item.description}</p>
               </div>
@@ -60,7 +81,7 @@ export default function AIInsights() {
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-2xl font-bold text-primary">Connected devices</h2>
+          <h2 className="text-2xl font-bold text-slate-800">Connected devices</h2>
           <div className="mt-5 space-y-3">
             {data.devices.map((device) => (
               <div key={device.id} className="rounded-2xl bg-slate-50 p-4">

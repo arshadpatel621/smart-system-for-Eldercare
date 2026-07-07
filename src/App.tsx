@@ -7,15 +7,14 @@ const Layout = lazy(() => import('./components/Layout'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const HealthMonitor = lazy(() => import('./pages/HealthMonitor'));
 const Routine = lazy(() => import('./pages/Routine'));
-const Safety = lazy(() => import('./pages/Safety'));
 const CareTeam = lazy(() => import('./pages/CareTeam'));
 const AIInsights = lazy(() => import('./pages/AIInsights'));
 const ResidentProfile = lazy(() => import('./pages/ResidentProfile'));
 const LiveMonitor = lazy(() => import('./pages/LiveMonitor'));
 const CameraManagement = lazy(() => import('./pages/CameraManagement'));
-const CameraDiscovery = lazy(() => import('./pages/CameraDiscovery'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const EmergencyCenter = lazy(() => import('./pages/EmergencyCenter'));
 const Settings = lazy(() => import('./pages/Settings'));
-const Support = lazy(() => import('./pages/Support'));
 const Login = lazy(() => import('./pages/Login'));
 const SignUp = lazy(() => import('./pages/SignUp'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
@@ -44,15 +43,14 @@ function App() {
             <Route path="insights" element={withSuspense(<AIInsights />)} />
             <Route path="profile" element={withSuspense(<ResidentProfile />)} />
             <Route path="settings" element={withSuspense(<Settings />)} />
-            <Route path="support" element={withSuspense(<Support />)} />
+            <Route path="notifications" element={withSuspense(<Notifications />)} />
             <Route element={<ProtectedRoute allowedRoles={roleAccess.careTeam} />}>
               <Route path="team" element={withSuspense(<CareTeam />)} />
               <Route path="camera" element={withSuspense(<LiveMonitor />)} />
               <Route path="cameras" element={withSuspense(<CameraManagement />)} />
-              <Route path="discover" element={withSuspense(<CameraDiscovery />)} />
             </Route>
           </Route>
-          <Route path="/sos" element={withSuspense(<Safety />)} />
+          <Route path="/emergency" element={withSuspense(<EmergencyCenter />)} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

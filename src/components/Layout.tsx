@@ -15,7 +15,7 @@ async function triggerEmergency(
     note: 'Emergency SOS triggered from layout control.',
     resolved: false,
   });
-  navigate('/sos');
+  navigate('/emergency');
 }
 
 export default function Layout() {
@@ -34,6 +34,11 @@ export default function Layout() {
   } = useEldercare();
   const activeAlerts = derivedAlerts.filter((alert) => !alert.acknowledged);
   const visibleNavItems = navItems.filter((item) => hasRoleAccess(role, item.roles));
+
+  const bottomNavPaths = ['/', '/health', '/camera', '/notifications'];
+  const bottomNavItems = visibleNavItems
+    .filter(item => bottomNavPaths.includes(item.path))
+    .sort((a, b) => bottomNavPaths.indexOf(a.path) - bottomNavPaths.indexOf(b.path));
 
   return (
     <div className="bg-background text-on-background min-h-screen flex flex-col">
@@ -191,7 +196,7 @@ export default function Layout() {
 
       {/* BottomNavBar (Mobile) */}
       <nav className="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 pb-safe pt-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-100 dark:border-slate-800 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] rounded-t-2xl">
-         {visibleNavItems.slice(0, 2).map((item) => {
+         {bottomNavItems.slice(0, 2).map((item) => {
              const isActive = location.pathname === item.path;
              return (
                  <NavLink
@@ -207,14 +212,14 @@ export default function Layout() {
              );
          })}
          
-         <NavLink to="/sos" className="flex flex-col items-center justify-center text-[#b91c1c] active:scale-90 transition-transform duration-150 -translate-y-4 relative z-10">
+         <NavLink to="/emergency" className="flex flex-col items-center justify-center text-[#b91c1c] active:scale-90 transition-transform duration-150 -translate-y-4 relative z-10">
              <div className="bg-error p-4 rounded-full shadow-lg shadow-error/40 border-4 border-white dark:border-slate-900 flex items-center justify-center">
                  <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>emergency</span>
              </div>
              <span className="font-public-sans text-[10px] font-bold uppercase tracking-wider mt-1 text-error">SOS</span>
          </NavLink>
 
-         {visibleNavItems.slice(2, 4).map((item) => {
+         {bottomNavItems.slice(2, 4).map((item) => {
              const isActive = location.pathname === item.path;
              return (
                  <NavLink

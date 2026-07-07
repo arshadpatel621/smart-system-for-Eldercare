@@ -30,6 +30,7 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
 
   const [imgError, setImgError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<'live' | 'playback' | 'ptz'>('live');
 
   // Reset image error state when camera status changes
   useEffect(() => {
@@ -140,109 +141,13 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
         {/* Floating Quick Status Indicator Tag */}
         {isOnline && !imgError && (
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 rounded-full bg-slate-900/60 backdrop-blur-md border border-white/10 px-3 py-1.5 text-xs text-white">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-medium tracking-wide">LIVE</span>
-          </div>
-        )}
-
-        {/* Glassmorphism PTZ Control Panel */}
-        {isOnline && !imgError && capabilities?.supportsPTZ && (
-          <div className="absolute bottom-4 right-4 z-10 opacity-70 hover:opacity-100 transition-opacity duration-300">
-            <div className="flex flex-col items-center bg-slate-950/70 backdrop-blur-md p-4 rounded-3xl border border-white/10 gap-4 w-40">
-              
-              {/* D-Pad */}
-              <div className="grid grid-cols-3 grid-rows-3 gap-2">
-                <div />
-                <button
-                  onPointerDown={() => void triggerPTZ('up')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center text-white/80 hover:text-blue-400 active:scale-90 transition-all rounded-full hover:bg-white/15 h-10 w-10"
-                  title="Pan Up"
-                >
-                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_up</span>
-                </button>
-                <div />
-
-                <button
-                  onPointerDown={() => void triggerPTZ('left')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center text-white/80 hover:text-blue-400 active:scale-90 transition-all rounded-full hover:bg-white/15 h-10 w-10"
-                  title="Pan Left"
-                >
-                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_left</span>
-                </button>
-                <div className="flex items-center justify-center text-white/30">
-                  <span className="material-symbols-outlined text-sm">circle</span>
-                </div>
-                <button
-                  onPointerDown={() => void triggerPTZ('right')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center text-white/80 hover:text-blue-400 active:scale-90 transition-all rounded-full hover:bg-white/15 h-10 w-10"
-                  title="Pan Right"
-                >
-                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_right</span>
-                </button>
-
-                <div />
-                <button
-                  onPointerDown={() => void triggerPTZ('down')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center text-white/80 hover:text-blue-400 active:scale-90 transition-all rounded-full hover:bg-white/15 h-10 w-10"
-                  title="Pan Down"
-                >
-                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_down</span>
-                </button>
-                <div />
-              </div>
-
-              {/* Home & Stop Actions */}
-              <div className="flex gap-3 w-full justify-center">
-                <button
-                  onClick={() => void triggerPTZ('home')}
-                  className="flex-1 py-1.5 bg-white/10 hover:bg-blue-600/50 text-white text-xs font-semibold rounded-full transition-colors border border-white/5"
-                >
-                  Home
-                </button>
-                <button
-                  onClick={() => void triggerPTZ('stop')}
-                  className="flex-1 py-1.5 bg-white/10 hover:bg-rose-500/50 text-white text-xs font-semibold rounded-full transition-colors border border-white/5"
-                >
-                  Stop
-                </button>
-              </div>
-
-              {/* Zoom Controls */}
-              <div className="flex gap-3 w-full justify-center">
-                <button
-                  onPointerDown={() => void triggerPTZ('zoom_in')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex flex-1 items-center justify-center py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-full transition-colors border border-white/5"
-                  title="Zoom In"
-                >
-                  <span className="material-symbols-outlined text-[16px] mr-1">zoom_in</span> +
-                </button>
-                <button
-                  onPointerDown={() => void triggerPTZ('zoom_out')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex flex-1 items-center justify-center py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-full transition-colors border border-white/5"
-                  title="Zoom Out"
-                >
-                  <span className="material-symbols-outlined text-[16px] mr-1">zoom_out</span> -
-                </button>
-              </div>
-
-            </div>
+            <span className={`h-2 w-2 rounded-full ${activeTab === 'playback' ? 'bg-purple-500' : 'bg-emerald-500 animate-pulse'}`} />
+            <span className="font-medium tracking-wide">{activeTab === 'playback' ? 'PLAYBACK' : 'LIVE'}</span>
           </div>
         )}
       </div>
 
-      {/* Primary Controls */}
+      {/* Primary Controls (Always Visible) */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-slate-50 px-6 py-4">
         <div className="flex items-center gap-3">
           <span className="text-sm font-bold text-slate-700">Stream Source:</span>
@@ -270,110 +175,238 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
         </div>
       </div>
 
-      {/* Advanced Features Card */}
-      {isOnline && capabilities && (
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-slate-200 pb-px">
+        {[
+          { id: 'live', label: 'Live View', icon: 'videocam' },
+          { id: 'playback', label: 'Camera Playback', icon: 'history' },
+          { id: 'ptz', label: 'PTZ Control', icon: 'gamepad' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTab === tab.id
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Playback Tab */}
+      {activeTab === 'playback' && (
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col gap-6">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <span className="material-symbols-outlined text-purple-500">history</span>
+            Historical Playback
+          </h3>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+              <span>00:00</span>
+              <span>12:00</span>
+              <span>23:59</span>
+            </div>
+            <div className="h-4 w-full bg-slate-100 rounded-full relative overflow-hidden">
+               <div className="absolute left-0 top-0 h-full w-[45%] bg-purple-200"></div>
+               <div className="absolute left-[45%] top-0 h-full w-2 bg-purple-500 rounded-full cursor-pointer shadow-md"></div>
+            </div>
+            <div className="flex justify-center gap-4 mt-4">
+              <button className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700"><span className="material-symbols-outlined">fast_rewind</span></button>
+              <button className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700"><span className="material-symbols-outlined">play_arrow</span></button>
+              <button className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700"><span className="material-symbols-outlined">fast_forward</span></button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PTZ Control Tab */}
+      {activeTab === 'ptz' && isOnline && capabilities && (
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col gap-6">
           <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <span className="material-symbols-outlined text-blue-500">settings_remote</span>
-            Advanced Controls
+            PTZ & Advanced Controls
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            
-            {/* Presets */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Presets</h4>
-              <div className="grid grid-cols-2 gap-2">
-                {['Home', 'Bed', 'Door', 'Window', 'Kitchen'].map(preset => (
-                  <button
-                    key={preset}
-                    disabled={!capabilities.supportsPresets}
-                    onClick={() => void gotoPreset(preset.toLowerCase())}
-                    title={capabilities.supportsPresets ? `Go to ${preset}` : 'Feature not supported by this camera'}
-                    className="py-1.5 px-3 bg-slate-100 hover:bg-blue-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 transition-colors"
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* AI Features */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Smart Features</h4>
-              <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                  <button
-                    disabled={!capabilities.supportsTracking}
-                    onClick={() => void setMotionTracking(true)}
-                    title={capabilities.supportsTracking ? 'Enable Motion Tracking' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">radar</span> Track ON
-                  </button>
-                  <button
-                    disabled={!capabilities.supportsTracking}
-                    onClick={() => void setMotionTracking(false)}
-                    title={capabilities.supportsTracking ? 'Disable Motion Tracking' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
-                  >
-                    Track OFF
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    disabled={!capabilities.supportsNightVision}
-                    onClick={() => void setNightVision(true)}
-                    title={capabilities.supportsNightVision ? 'Enable Night Vision' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">dark_mode</span> NV ON
-                  </button>
-                  <button
-                    disabled={!capabilities.supportsNightVision}
-                    onClick={() => void setNightVision(false)}
-                    title={capabilities.supportsNightVision ? 'Disable Night Vision' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
-                  >
-                    NV OFF
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Media Actions */}
-            <div className="space-y-3">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</h4>
-              <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* PTZ Joystick */}
+            <div className="flex flex-col items-center bg-slate-50 p-6 rounded-3xl border border-slate-200 gap-6">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-full text-center">Directional Control</h4>
+              <div className="grid grid-cols-3 grid-rows-3 gap-3">
+                <div />
                 <button
-                  disabled={!capabilities.supportsTalk}
-                  onClick={() => void talk()}
-                  title={capabilities.supportsTalk ? 'Trigger 2-way talk alarm' : 'Feature not supported'}
-                  className="w-full py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('up')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
                 >
-                  <span className="material-symbols-outlined text-[16px]">record_voice_over</span> Talk / Alarm
+                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_up</span>
                 </button>
-                <div className="flex gap-2">
-                  <button
-                    disabled={!capabilities.supportsSnapshot}
-                    onClick={() => void snapshot()}
-                    title={capabilities.supportsSnapshot ? 'Capture Snapshot' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">photo_camera</span> Snap
-                  </button>
-                  <button
-                    disabled={!capabilities.supportsRecording}
-                    onClick={() => void record(30)}
-                    title={capabilities.supportsRecording ? 'Record 30s Clip' : 'Feature not supported'}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">videocam</span> Rec
-                  </button>
+                <div />
+
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('left')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_left</span>
+                </button>
+                <div className="flex items-center justify-center text-slate-300">
+                  <span className="material-symbols-outlined text-sm">circle</span>
                 </div>
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('right')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_right</span>
+                </button>
+
+                <div />
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('down')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_down</span>
+                </button>
+                <div />
+              </div>
+
+              <div className="flex gap-4 w-full px-4">
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onClick={() => void triggerPTZ('home')}
+                  className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
+                >
+                  Home
+                </button>
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onClick={() => void triggerPTZ('stop')}
+                  className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
+                >
+                  Stop
+                </button>
+              </div>
+
+              <div className="flex gap-4 w-full px-4">
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('zoom_in')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px] mr-1">zoom_in</span> Zoom In
+                </button>
+                <button
+                  disabled={!capabilities.supportsPTZ}
+                  onPointerDown={() => void triggerPTZ('zoom_out')}
+                  onPointerUp={() => void triggerPTZ('stop')}
+                  onPointerLeave={() => void triggerPTZ('stop')}
+                  className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px] mr-1">zoom_out</span> Zoom Out
+                </button>
               </div>
             </div>
-            
+
+            <div className="grid grid-cols-1 gap-6">
+              {/* Presets */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Presets</h4>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                  {['Home', 'Bed', 'Door', 'Window', 'Kitchen'].map(preset => (
+                    <button
+                      key={preset}
+                      disabled={!capabilities.supportsPresets}
+                      onClick={() => void gotoPreset(preset.toLowerCase())}
+                      title={capabilities.supportsPresets ? `Go to ${preset}` : 'Feature not supported by this camera'}
+                      className="py-2 px-3 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 disabled:hover:bg-slate-50 transition-colors"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* AI Features */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Smart Features</h4>
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                      disabled={!capabilities.supportsTracking}
+                      onClick={() => void setMotionTracking(true)}
+                      className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">radar</span> Track ON
+                    </button>
+                    <button
+                      disabled={!capabilities.supportsTracking}
+                      onClick={() => void setMotionTracking(false)}
+                      className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
+                    >
+                      Track OFF
+                    </button>
+                    <button
+                      disabled={!capabilities.supportsNightVision}
+                      onClick={() => void setNightVision(true)}
+                      className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">dark_mode</span> NV ON
+                    </button>
+                    <button
+                      disabled={!capabilities.supportsNightVision}
+                      onClick={() => void setNightVision(false)}
+                      className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
+                    >
+                      NV OFF
+                    </button>
+                </div>
+              </div>
+
+              {/* Media Actions */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</h4>
+                <div className="flex flex-col gap-2">
+                  <button
+                    disabled={!capabilities.supportsTalk}
+                    onClick={() => void talk()}
+                    className="w-full py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">record_voice_over</span> Talk / Alarm
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      disabled={!capabilities.supportsSnapshot}
+                      onClick={() => void snapshot()}
+                      className="flex-1 py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">photo_camera</span> Snap
+                    </button>
+                    <button
+                      disabled={!capabilities.supportsRecording}
+                      onClick={() => void record(30)}
+                      className="flex-1 py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">videocam</span> Rec
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
           </div>
         </div>
       )}
