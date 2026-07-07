@@ -12,7 +12,7 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http:/
 export type CameraBrand = 'cpplus' | 'dahua' | 'hikvision' | 'tplink_tapo' | 'ezviz' | 'onvif' | 'rtsp';
 export type CameraLocation = 'living_room' | 'bedroom' | 'kitchen' | 'bathroom' | 'entrance' | 'garden' | 'hallway' | 'dining_room' | 'other';
 export type StreamStatus = 'ONLINE' | 'OFFLINE' | 'CONNECTING' | 'ERROR';
-export type PTZDirection = 'left' | 'right' | 'up' | 'down' | 'home';
+export type PTZDirection = 'left' | 'right' | 'up' | 'down' | 'home' | 'stop' | 'zoom_in' | 'zoom_out';
 
 export const BRAND_LABELS: Record<CameraBrand, string> = {
   cpplus: 'CP Plus', dahua: 'Dahua', hikvision: 'Hikvision',
@@ -61,6 +61,16 @@ export interface CameraStatus {
   connectionTime: string | null;
   reconnectAttempts: number;
   error?: string;
+}
+
+export interface CameraCapabilities {
+  supportsPTZ: boolean;
+  supportsTracking: boolean;
+  supportsNightVision: boolean;
+  supportsTalk: boolean;
+  supportsRecording: boolean;
+  supportsSnapshot: boolean;
+  supportsPresets: boolean;
 }
 
 export interface CreateCameraInput {
@@ -149,6 +159,27 @@ export const fetchCameraStatus = (id: string) =>
 
 export const moveCamera = (id: string, action: PTZDirection, speed = 5) =>
   apiFetch<{ message: string }>(`/api/cameras/${id}/ptz`, { method: 'POST', body: JSON.stringify({ action, speed }) });
+
+export const fetchCameraCapabilities = (id: string) =>
+  apiFetch<CameraCapabilities>(`/api/cameras/${id}/capabilities`);
+
+export const moveCameraPreset = (id: string, preset: string) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/preset`, { method: 'POST', body: JSON.stringify({ preset }) });
+
+export const toggleMotionTracking = (id: string, enabled: boolean) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/tracking`, { method: 'POST', body: JSON.stringify({ enabled }) });
+
+export const toggleNightVision = (id: string, enabled: boolean) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/nightvision`, { method: 'POST', body: JSON.stringify({ enabled }) });
+
+export const triggerTalk = (id: string) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/talk`, { method: 'POST' });
+
+export const captureSnapshot = (id: string) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/snapshot`, { method: 'POST' });
+
+export const recordVideo = (id: string, duration?: number) =>
+  apiFetch<{ message: string }>(`/api/cameras/${id}/record`, { method: 'POST', body: JSON.stringify({ duration }) });
 
 export const getStreamUrl = (id: string) => `${API_BASE}/api/cameras/${id}/stream`;
 export const getWebSocketUrl = () => API_BASE.replace(/^http/, 'ws');

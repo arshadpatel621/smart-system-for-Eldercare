@@ -7,21 +7,27 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   fetchCameraStatus, moveCamera, toggleCamera, getWebSocketUrl, getStreamUrl,
-  type CameraStatus, type PTZDirection,
+  fetchCameraCapabilities, moveCameraPreset, toggleMotionTracking, toggleNightVision, triggerTalk, captureSnapshot, recordVideo,
+  type CameraStatus, type PTZDirection, type CameraCapabilities
 } from '../services/camera';
 
 export function useCamera(cameraId: string) {
   const [status, setStatus] = useState<CameraStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<CameraCapabilities | null>(null);
   const [ptzLoading, setPtzLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   const refreshStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchCameraStatus(cameraId);
+      const [data, caps] = await Promise.all([
+        fetchCameraStatus(cameraId),
+        fetchCameraCapabilities(cameraId).catch(() => null)
+      ]);
       setStatus(data);
+      if (caps) setCapabilities(caps);
       setError(null);
     } catch (err: any) {
       setError(err.message ?? 'Failed to fetch status');
@@ -118,9 +124,29 @@ export function useCamera(cameraId: string) {
     }
   };
 
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  const executeAction = async (actionFn: () => Promise<any>) => {
+    try {
+      const res = await actionFn();
+      setActionSuccess(res.message || 'Success');
+      setTimeout(() => setActionSuccess(null), 3000); // clear after 3s
+      setError(null);
+    } catch (err: any) {
+      setError(err.message ?? 'Action failed');
+      setActionSuccess(null);
+    }
+  };
+
   return {
-    status, loading, error, ptzLoading,
+    status, loading, error, actionSuccess, ptzLoading, capabilities,
     start, stop, triggerPTZ, refresh: refreshStatus,
     streamUrl: getStreamUrl(cameraId),
+    gotoPreset: (preset: string) => executeAction(() => moveCameraPreset(cameraId, preset)),
+    setMotionTracking: (enabled: boolean) => executeAction(() => toggleMotionTracking(cameraId, enabled)),
+    setNightVision: (enabled: boolean) => executeAction(() => toggleNightVision(cameraId, enabled)),
+    talk: () => executeAction(() => triggerTalk(cameraId)),
+    snapshot: () => executeAction(() => captureSnapshot(cameraId)),
+    record: (duration?: number) => executeAction(() => recordVideo(cameraId, duration)),
   };
 }
