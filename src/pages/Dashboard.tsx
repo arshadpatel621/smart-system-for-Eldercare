@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useEldercare } from '../context/EldercareContext';
 import { hasRoleAccess, roleAccess } from '../lib/access';
+import { useDeviceManager } from '../hooks/useDeviceManager';
 
 function getNextMedication(data: NonNullable<ReturnType<typeof useEldercare>['data']>) {
   const today = new Date().toISOString().slice(0, 10);
@@ -30,6 +31,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { role } = useAuth();
   const { data, latestVitals, derivedAlerts, recommendations, storageMode } = useEldercare();
+  const { devices } = useDeviceManager();
 
   if (!data || !latestVitals) {
     return <div className="text-slate-500">Loading dashboard...</div>;
@@ -46,6 +48,9 @@ export default function Dashboard() {
     { label: 'Routine log', path: '/routine', roles: roleAccess.all },
     { label: 'Emergency protocols', path: '/emergency', roles: roleAccess.all },
   ].filter((item) => hasRoleAccess(role, item.roles));
+
+  const onlineDevices = devices.filter(d => d.status === 'connected').length + 3; // +3 mock cameras
+  const offlineDevices = devices.filter(d => d.status === 'disconnected' || d.status === 'error').length + 0; // +0 mock cameras
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -134,22 +139,22 @@ export default function Dashboard() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-800">Camera summary</h2>
-              <span className="material-symbols-outlined text-slate-400">videocam</span>
+              <h2 className="text-xl font-bold text-slate-800">Connected Devices</h2>
+              <span className="material-symbols-outlined text-slate-400">devices</span>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-4">
               <div className="bg-slate-50 p-4 rounded-2xl">
                 <p className="text-xs font-bold text-slate-500 uppercase">Online</p>
-                <p className="text-2xl font-black text-emerald-600">3</p>
+                <p className="text-2xl font-black text-emerald-600">{onlineDevices}</p>
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl">
                 <p className="text-xs font-bold text-slate-500 uppercase">Offline</p>
-                <p className="text-2xl font-black text-rose-600">0</p>
+                <p className="text-2xl font-black text-rose-600">{offlineDevices}</p>
               </div>
             </div>
           </div>
-          <button onClick={() => navigate('/cameras')} className="mt-6 w-full text-sm font-bold text-primary hover:bg-slate-50 py-2 rounded-xl border border-slate-200 transition-colors">
-            Manage Cameras
+          <button onClick={() => navigate('/devices')} className="mt-6 w-full text-sm font-bold text-primary hover:bg-slate-50 py-2 rounded-xl border border-slate-200 transition-colors">
+            Manage Devices
           </button>
         </div>
 

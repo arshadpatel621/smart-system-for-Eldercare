@@ -12,7 +12,7 @@ export const navItems = [
   { path: '/team', icon: 'group', label: 'Care Team', roles: roleAccess.careTeam },
   { path: '/insights', icon: 'psychology', label: 'AI Insights', roles: roleAccess.all },
   { path: '/camera', icon: 'videocam', label: 'Live Monitor', roles: roleAccess.careTeam },
-  { path: '/cameras', icon: 'video_settings', label: 'Camera Mgmt', roles: roleAccess.careTeam },
+  { path: '/devices', icon: 'devices', label: 'Device Mgmt', roles: roleAccess.careTeam },
   { path: '/notifications', icon: 'notifications', label: 'Notifications', roles: roleAccess.all },
   { path: '/emergency', icon: 'emergency', label: 'Emergency Center', roles: roleAccess.all },
   { path: '/settings', icon: 'settings', label: 'Settings', roles: roleAccess.all },

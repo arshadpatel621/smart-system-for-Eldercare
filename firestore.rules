@@ -42,5 +42,10 @@ service cloud.firestore {
         allow read, write: if signedIn() && canAccessElder(elderId);
       }
     }
+
+    match /AIReports/{reportId} {
+      allow read, write: if signedIn() && canAccessElder(resource.data.residentId);
+      allow create: if signedIn() && canAccessElder(request.resource.data.residentId);
+    }
   }
 }

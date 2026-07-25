@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useEldercare } from '../context/EldercareContext';
+import { useWatchManager } from '../hooks/useWatchManager';
+import { useNavigate } from 'react-router-dom';
 import type { MetricType } from '../types/eldercare';
 
 const metricUnitMap: Record<MetricType, string> = {
@@ -16,6 +18,8 @@ const metricUnitMap: Record<MetricType, string> = {
 
 export default function HealthMonitor() {
   const { data, latestVitals, createMetric } = useEldercare();
+  const { watches } = useWatchManager();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     type: 'blood_pressure' as MetricType,
     value: '',
@@ -28,6 +32,10 @@ export default function HealthMonitor() {
     return <div className="text-slate-500">Loading health monitor...</div>;
   }
 
+  const connectedWearable = watches.find(w => w.connectionStatus === 'connected');
+  const syncingWearable   = !connectedWearable && watches.find(w => w.connectionStatus === 'syncing');
+  const activeWearable    = connectedWearable ?? syncingWearable ?? null;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
@@ -38,42 +46,115 @@ export default function HealthMonitor() {
       </header>
 
       {/* Device Connection Status */}
-      <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-4">
-        <div className="relative flex h-3 w-3">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+      {activeWearable ? (
+        <div className={`border rounded-2xl p-4 flex items-center justify-between ${
+          activeWearable.connectionStatus === 'connected'
+            ? 'bg-emerald-50 border-emerald-100'
+            : 'bg-amber-50 border-amber-100'
+        }`}>
+          <div className="flex items-center gap-4">
+            <div className="relative flex h-3 w-3">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                activeWearable.connectionStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`} />
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${
+                activeWearable.connectionStatus === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'
+              }`} />
+            </div>
+            <div>
+              <h3 className={`text-sm font-bold ${
+                activeWearable.connectionStatus === 'connected' ? 'text-emerald-900' : 'text-amber-900'
+              }`}>
+                {activeWearable.watchName}
+                {activeWearable.connectionStatus === 'syncing' ? ' — Syncing' : ' — Connected'}
+              </h3>
+              <p className={`text-xs ${
+                activeWearable.connectionStatus === 'connected' ? 'text-emerald-700' : 'text-amber-700'
+              }`}>
+                Last seen: {activeWearable.lastSeen ? new Date(activeWearable.lastSeen).toLocaleTimeString() : 'Unknown'}
+                {activeWearable.battery !== undefined ? ` • Battery: ${activeWearable.battery}%` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => navigate('/devices')} className={`text-xs font-bold px-3 py-1.5 border rounded-lg ${
+              activeWearable.connectionStatus === 'connected'
+                ? 'text-emerald-700 hover:text-emerald-900 border-emerald-200'
+                : 'text-amber-700 hover:text-amber-900 border-amber-200'
+            }`}>View Details</button>
+          </div>
         </div>
-        <div>
-          <h3 className="text-sm font-bold text-emerald-900">Apple Watch Series 9 Connected</h3>
-          <p className="text-xs text-emerald-700">Last synced: Just now • Battery: 84%</p>
+      ) : (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
+              <span className="material-symbols-outlined text-slate-400">watch_off</span>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-800">No smart watch connected</h3>
+              <p className="text-xs text-slate-500">Go to Device Management to add or manage smart watches.</p>
+            </div>
+          </div>
+          <button onClick={() => navigate('/devices')} className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 shadow-sm transition-colors">
+            Manage Watches
+          </button>
         </div>
-      </div>
+      )}
 
         <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[
-            ['Heart rate', latestVitals.heartRate?.value, 'bpm', 'favorite', 'text-rose-500'],
-            ['SpO₂', latestVitals.spo2?.value, '%', 'bloodtype', 'text-blue-500'],
-            ['Blood pressure', latestVitals.bloodPressure ? `${latestVitals.bloodPressure.value}/${latestVitals.bloodPressure.secondaryValue}` : '--', 'mmHg', 'monitor_heart', 'text-indigo-500'],
-            ['Temperature', '--', '°F', 'device_thermostat', 'text-amber-500'],
-            ['Sleep', latestVitals.sleep?.value, 'hours', 'dark_mode', 'text-purple-500'],
-            ['Steps', latestVitals.steps?.value, 'steps', 'directions_walk', 'text-emerald-500'],
-          ].map(([label, value, unit, icon, color]) => (
-            <div key={label as string} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <div className={`rounded-2xl bg-slate-50 p-3 ${color as string}`}>
-                  <span className="material-symbols-outlined text-2xl">{icon as string}</span>
+            { id: 'heart_rate',    label: 'Heart Rate',      value: latestVitals.heartRate?.value,    unit: 'bpm',   icon: 'favorite',             color: 'text-rose-500'   },
+            { id: 'spo2',          label: 'SpO₂',            value: latestVitals.spo2?.value,          unit: '%',     icon: 'bloodtype',            color: 'text-blue-500'   },
+            { id: 'blood_pressure',label: 'Blood Pressure',  value: latestVitals.bloodPressure
+              ? `${latestVitals.bloodPressure.value}/${latestVitals.bloodPressure.secondaryValue}`
+              : undefined,                                                                               unit: 'mmHg',  icon: 'monitor_heart',        color: 'text-indigo-500' },
+            { id: 'temperature',   label: 'Temperature',     value: undefined,                         unit: '°F',    icon: 'device_thermostat',    color: 'text-amber-500'  },
+            { id: 'sleep_hours',   label: 'Sleep',           value: latestVitals.sleep?.value,         unit: 'h',     icon: 'dark_mode',            color: 'text-purple-500' },
+            { id: 'steps',         label: 'Steps',           value: latestVitals.steps?.value,         unit: 'steps', icon: 'directions_walk',      color: 'text-emerald-500'},
+            { id: 'calories',      label: 'Calories',        value: latestVitals.calories?.value,      unit: 'kcal',  icon: 'local_fire_department',color: 'text-orange-500' },
+          ].map(({ id, label, value, unit, icon, color }) => {
+            const hasDevice   = activeWearable !== null;
+            const hasRealData = value !== undefined && value !== null;
+
+            return (
+              <div
+                key={id}
+                className={`rounded-3xl border ${
+                  hasDevice ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-70'
+                } p-6 shadow-sm flex flex-col justify-between`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className={`rounded-2xl bg-slate-50/50 p-3 ${hasDevice ? color : 'text-slate-400'}`}>
+                    <span className="material-symbols-outlined text-2xl">{icon}</span>
+                  </div>
+                  {hasDevice && hasRealData && (
+                    <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">TODAY</span>
+                  )}
                 </div>
-                <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-md">TODAY</span>
-              </div>
-              <div className="mt-4">
-                <div className="text-sm font-bold uppercase tracking-widest text-slate-400">{label as string}</div>
-                <div className="mt-1 flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-slate-800">{value ?? '--'}</span>
-                  <span className="text-sm font-bold text-slate-400">{unit as string}</span>
+                <div className="mt-4">
+                  <div className="text-sm font-bold uppercase tracking-widest text-slate-400">{label}</div>
+                  {hasDevice ? (
+                    hasRealData ? (
+                      <div className="mt-1 flex items-baseline gap-1">
+                        <span className="text-4xl font-black text-slate-800">{value}</span>
+                        <span className="text-sm font-bold text-slate-400">{unit}</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <span className="text-3xl font-black text-slate-300">--</span>
+                        <p className="text-xs text-slate-400 mt-1">Waiting for device</p>
+                      </div>
+                    )
+                  ) : (
+                    <div className="mt-2">
+                      <span className="text-3xl font-black text-slate-300">--</span>
+                      <p className="text-xs text-slate-400 mt-1">No watch connected</p>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         {/* Historical Charts Placeholder */}
