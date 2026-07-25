@@ -18,11 +18,18 @@ import path from 'path';
 import { JsonCameraRepository } from './camera/camera.repository';
 import { CameraService } from './camera/camera.service';
 import { CameraController } from './camera/camera.controller';
+import { verifyEncryptionConfig } from './camera/camera.crypto';
 import { createCameraRouter } from './camera/camera.routes';
 import type { AIEvent } from './camera/camera.types';
 
+// ── Watch Module ────────────────────────────────────────────────────────────
+import { JsonWatchRepository } from './watch/watch.repository';
+import { WatchService } from './watch/watch.service';
+import { WatchController } from './watch/watch.controller';
+import { createWatchRouter } from './watch/watch.routes';
+
 // Load env vars from server/.env
-dotenv.config({ path: path.resolve(__dirname, '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const PORT = process.env.PORT ?? 5000;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',');
@@ -46,6 +53,13 @@ const cameraService = new CameraService(cameraRepo);
 const cameraController = new CameraController(cameraService);
 
 app.use('/api/cameras', createCameraRouter(cameraController));
+
+// ── Watch Module ────────────────────────────────────────────────────────────
+const watchRepo = new JsonWatchRepository();
+const watchService = new WatchService(watchRepo);
+const watchController = new WatchController(watchService);
+
+app.use('/api/watches', createWatchRouter(watchController));
 
 // ── AI Event Receiver ──────────────────────────────────────────────────────
 /**
@@ -132,15 +146,42 @@ cameraService.onStatusChange((status) => {
   });
 });
 
-// ── Startup ────────────────────────────────────────────────────────────────
+// ── Startup & Shutdown ──────────────────────────────────────────────────────
 server.listen(PORT, async () => {
+  // 1. Verify encryption keys match the database
+  verifyEncryptionConfig();
+
+  // 2. Initialize camera streams
+  await cameraService.initialize();
+
   console.log(`\n[SERVER] ═══════════════════════════════════════════`);
   console.log(`[SERVER]  Elder Care Camera Server`);
   console.log(`[SERVER]  HTTP  → http://localhost:${PORT}`);
   console.log(`[SERVER]  WS    → ws://localhost:${PORT}`);
   console.log(`[SERVER]  CORS  → ${ALLOWED_ORIGINS.join(', ')}`);
   console.log(`[SERVER] ═══════════════════════════════════════════\n`);
-
-  // Auto-start enabled camera streams
-  await cameraService.initialize();
 });
+
+let isShuttingDown = false;
+const shutdown = async (signal: string) => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`\n[SERVER] Received ${signal}, shutting down gracefully...`);
+  
+  await cameraService.shutdown();
+  
+  server.close(() => {
+    console.log('[SERVER] HTTP server closed.');
+    process.exit(0);
+  });
+  
+  // Force exit if taking too long
+  setTimeout(() => {
+    console.error('[SERVER] Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 3000);
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGUSR2', () => shutdown('SIGUSR2')); // ts-node-dev / nodemon
