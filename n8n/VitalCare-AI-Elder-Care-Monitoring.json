@@ -1,0 +1,641 @@
+{
+  "name": "VitalCare AI - Elder Care Monitoring",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vitalcare-ai",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "d57196b5-a435-4a01-af5b-fc1aeeb7ee27",
+      "name": "Receive Resident Health Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -96,
+        176
+      ],
+      "webhookId": "9ecdd74a-7046-48d0-9295-d4496750e1cc"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Sanitize the incoming webhook payload. Handle missing and invalid values\n// so downstream AI agents always receive a complete, well-typed record.\nconst b = ($json.body && typeof $json.body === 'object') ? $json.body : $json;\n\nconst missing = [];\nconst invalid = [];\n\nfunction num(key, def, min, max) {\n  const raw = b[key];\n  if (raw === undefined || raw === null || raw === '') { missing.push(key); return def; }\n  const n = Number(raw);\n  if (!Number.isFinite(n)) { invalid.push(key); return def; }\n  if (min !== undefined && n < min) { invalid.push(key); return def; }\n  if (max !== undefined && n > max) { invalid.push(key); return def; }\n  return n;\n}\nfunction str(key, def) {\n  const raw = b[key];\n  if (typeof raw !== 'string' || raw.trim() === '') { if (raw === undefined || raw === null || raw === '') missing.push(key); return def; }\n  return raw.trim();\n}\nfunction bool(key, def) {\n  const raw = b[key];\n  if (typeof raw === 'boolean') return raw;\n  if (raw === 'true') return true;\n  if (raw === 'false') return false;\n  if (raw === undefined || raw === null || raw === '') { missing.push(key); return def; }\n  invalid.push(key);\n  return def;\n}\n\nconst normalized = {\n  residentId: str('residentId', 'UNKNOWN'),\n  name: str('name', 'Unknown Resident'),\n  age: num('age', 0, 0, 130),\n  gender: str('gender', 'Unknown'),\n  heartRate: num('heartRate', 0, 0, 300),\n  spo2: num('spo2', 0, 0, 100),\n  bloodPressure: str('bloodPressure', 'N/A'),\n  temperature: num('temperature', 0, 25, 45),\n  respiratoryRate: num('respiratoryRate', 0, 0, 80),\n  sleepHours: num('sleepHours', 0, 0, 24),\n  steps: num('steps', 0, 0, 100000),\n  stressLevel: num('stressLevel', 0, 0, 100),\n  cameraEvent: str('cameraEvent', 'none'),\n  fallDetected: bool('fallDetected', false),\n  medicationTaken: bool('medicationTaken', true),\n  timestamp: str('timestamp', $now.toISO()),\n};\n\nnormalized.dataQuality = {\n  missingFields: missing,\n  invalidFields: invalid,\n  complete: missing.length === 0 && invalid.length === 0,\n};\n\nreturn normalized;"
+      },
+      "id": "1059cdf3-4c0c-43ff-bb5c-6f0b3b38285d",
+      "name": "Normalize & Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze this elder-care resident's vitals and return a health assessment.\n\nRESIDENT DATA:\n{{ JSON.stringify($('Normalize & Validate Input').item.json) }}\n\nEvaluate heart rate, SpO2, blood pressure, sleep, steps and other vitals. Detect abnormalities, then compute an overall healthScore (0-100), an overallHealth label (Excellent, Good, Fair, Poor, or Critical) and a concise clinical summary. Ignore fields that are 0/N/A/'none' as unavailable rather than abnormal.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the Health Monitoring Agent for VitalCare AI, a geriatric clinical monitoring system. Base your assessment on standard adult/geriatric vital-sign ranges. Return ONLY structured JSON matching the required schema. Do not invent data for missing/unavailable fields."
+        }
+      },
+      "id": "a155d5fa-31ae-4ac9-9e5c-2921229b9200",
+      "name": "Health Monitoring Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "2962d51f-ac51-4d91-955c-acfa8183bb41",
+      "name": "Groq Model - Health",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        464,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"healthScore\":{\"type\":\"number\",\"description\":\"0-100 overall health score\"},\"overallHealth\":{\"type\":\"string\",\"description\":\"Excellent | Good | Fair | Poor | Critical\"},\"summary\":{\"type\":\"string\"}},\"required\":[\"healthScore\",\"overallHealth\",\"summary\"]}"
+      },
+      "id": "635b1513-daf8-44c0-8e3e-ccab3204362e",
+      "name": "Health Output Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        592,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Predict clinical risks for this resident.\n\nRESIDENT DATA:\n{{ JSON.stringify($('Normalize & Validate Input').item.json) }}\n\nHEALTH ASSESSMENT:\n{{ JSON.stringify($('Health Monitoring Agent').item.json.output) }}\n\nReturn fallRisk as a 0-100 percentage (weigh fallDetected, gait/steps, age, stress, sleep). Return heartRisk, sleepRisk and activityRisk each as Low, Medium or High.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the Risk Prediction Agent for VitalCare AI. Produce calibrated geriatric risk predictions. Return ONLY structured JSON matching the required schema."
+        }
+      },
+      "id": "9f363263-d3f3-4160-9a78-289d833a8c69",
+      "name": "Risk Prediction Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        800,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "6b70ae8b-edc4-4e49-b9fc-459bc5744617",
+      "name": "Groq Model - Risk",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        816,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"fallRisk\":{\"type\":\"number\",\"description\":\"0-100 fall risk percentage\"},\"heartRisk\":{\"type\":\"string\",\"description\":\"Low | Medium | High\"},\"sleepRisk\":{\"type\":\"string\",\"description\":\"Low | Medium | High\"},\"activityRisk\":{\"type\":\"string\",\"description\":\"Low | Medium | High\"}},\"required\":[\"fallRisk\",\"heartRisk\",\"sleepRisk\",\"activityRisk\"]}"
+      },
+      "id": "9faaeb37-d7ad-4f55-83e4-c7186e12c393",
+      "name": "Risk Output Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        944,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Determine whether this resident is in a medical emergency.\n\nRESIDENT DATA:\n{{ JSON.stringify($('Normalize & Validate Input').item.json) }}\n\nHEALTH ASSESSMENT:\n{{ JSON.stringify($('Health Monitoring Agent').item.json.output) }}\n\nRISK PREDICTION:\n{{ JSON.stringify($('Risk Prediction Agent').item.json.output) }}\n\nSet emergency true only for genuinely urgent situations (e.g. confirmed fall, critical SpO2/heart rate, critical health). If emergency is true, provide priority, reason, immediateAction, hospitalRecommendation and emergencyContactRecommendation. If false, set priority to \"None\" and return short \"Not required\" style values for the action fields.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the Emergency Detection Agent for VitalCare AI. Be conservative: only flag true emergencies, but never miss critical vitals or a confirmed fall. Return ONLY structured JSON matching the required schema."
+        }
+      },
+      "id": "4ed1fec4-4bd2-4894-94c7-2a2cea630da0",
+      "name": "Emergency Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1152,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "093806ad-5005-4d0d-81de-00f6cfa7b332",
+      "name": "Groq Model - Emergency",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"emergency\":{\"type\":\"boolean\"},\"priority\":{\"type\":\"string\",\"description\":\"None | Low | Medium | High | Critical\"},\"reason\":{\"type\":\"string\"},\"immediateAction\":{\"type\":\"string\"},\"hospitalRecommendation\":{\"type\":\"string\"},\"emergencyContactRecommendation\":{\"type\":\"string\"}},\"required\":[\"emergency\",\"priority\",\"reason\",\"immediateAction\",\"hospitalRecommendation\",\"emergencyContactRecommendation\"]}"
+      },
+      "id": "087dcfdd-5492-48b6-a86d-a4decd25a4d9",
+      "name": "Emergency Output Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1296,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Generate personalized care recommendations for this resident.\n\nRESIDENT DATA:\n{{ JSON.stringify($('Normalize & Validate Input').item.json) }}\n\nHEALTH ASSESSMENT:\n{{ JSON.stringify($('Health Monitoring Agent').item.json.output) }}\n\nRISK PREDICTION:\n{{ JSON.stringify($('Risk Prediction Agent').item.json.output) }}\n\nReturn a recommendations array covering Diet, Exercise, Hydration, Medication (a reminder honoring medicationTaken), Sleep advice and a Doctor recommendation. Each item must have a category and a concrete, actionable recommendation.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the Recommendation Agent for VitalCare AI. Give practical, safe, geriatric-appropriate lifestyle and care guidance. Return ONLY structured JSON matching the required schema."
+        }
+      },
+      "id": "93197f3c-bd13-429f-a040-9b2648d75150",
+      "name": "Recommendation Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1504,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "ac2f10c7-9479-4993-af4c-6b02739c5ee7",
+      "name": "Groq Model - Recommendations",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"recommendations\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"category\":{\"type\":\"string\",\"description\":\"Diet | Exercise | Hydration | Medication | Sleep | Doctor\"},\"recommendation\":{\"type\":\"string\"}},\"required\":[\"category\",\"recommendation\"]}}},\"required\":[\"recommendations\"]}"
+      },
+      "id": "27db5deb-3870-45b7-9ac7-3abf3a4eb2d7",
+      "name": "Recommendation Output Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1648,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a professional caregiver report for this resident.\n\nRESIDENT DATA:\n{{ JSON.stringify($('Normalize & Validate Input').item.json) }}\n\nHEALTH ASSESSMENT:\n{{ JSON.stringify($('Health Monitoring Agent').item.json.output) }}\n\nRISK PREDICTION:\n{{ JSON.stringify($('Risk Prediction Agent').item.json.output) }}\n\nEMERGENCY STATUS:\n{{ JSON.stringify($('Emergency Agent').item.json.output) }}\n\nRECOMMENDATIONS:\n{{ JSON.stringify($('Recommendation Agent').item.json.output) }}\n\nProduce a clear caregiverReport with sections: Current Status, Risk, Summary, Recommendations, and Next Checkup. Also return nextCheckup as a short timeframe.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the Caregiver Report Agent for VitalCare AI. Write clinically accurate, easy-to-read reports for professional caregivers. Return ONLY structured JSON matching the required schema."
+        }
+      },
+      "id": "fd5b71a4-579f-4fa3-b021-5dde4741cf7c",
+      "name": "Caregiver Report Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1856,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {
+          "maxTokensToSample": 2048,
+          "temperature": 0.2
+        }
+      },
+      "id": "02ab9ede-22c2-429a-b915-92f1649c6d12",
+      "name": "Groq Model - Report",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        336
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "YOUR_GROQ_CREDENTIAL_ID",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"caregiverReport\":{\"type\":\"string\",\"description\":\"Professional multi-section report: Current Status, Risk, Summary, Recommendations, Next Checkup\"},\"nextCheckup\":{\"type\":\"string\",\"description\":\"Suggested next checkup timeframe/date\"}},\"required\":[\"caregiverReport\",\"nextCheckup\"]}"
+      },
+      "id": "297c9fb2-cc0b-4482-8978-429f6f20b84a",
+      "name": "Caregiver Report Schema",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2000,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Merge all agent outputs into the single JSON contract the React app consumes.\nconst input = $('Normalize & Validate Input').item.json || {};\nconst health = ($('Health Monitoring Agent').item.json.output) || {};\nconst risk = ($('Risk Prediction Agent').item.json.output) || {};\nconst emerg = ($('Emergency Agent').item.json.output) || {};\nconst rec = ($('Recommendation Agent').item.json.output) || {};\nconst report = ($('Caregiver Report Agent').item.json.output) || {};\n\n// Derive an overall risk level from the individual risk signals.\nconst fallRisk = Number(risk.fallRisk) || 0;\nconst levels = [risk.heartRisk, risk.sleepRisk, risk.activityRisk].map(v => String(v || '').toLowerCase());\nconst highCount = levels.filter(v => v === 'high').length;\nconst medCount = levels.filter(v => v === 'medium').length;\nconst isEmergency = emerg.emergency === true;\n\nlet riskLevel = 'Low';\nif (isEmergency || fallRisk >= 70 || highCount >= 1) riskLevel = 'High';\nelse if (fallRisk >= 40 || medCount >= 1) riskLevel = 'Medium';\n\nconst recommendations = Array.isArray(rec.recommendations) ? rec.recommendations : [];\n\nreturn {\n  // ---- Primary contract returned to the frontend ----\n  residentId: input.residentId,\n  name: input.name,\n  healthScore: Number(health.healthScore) || 0,\n  overallHealth: health.overallHealth || 'Unknown',\n  riskLevel: riskLevel,\n  emergency: isEmergency,\n  fallRisk: fallRisk,\n  heartRisk: risk.heartRisk || 'Low',\n  sleepRisk: risk.sleepRisk || 'Low',\n  activityRisk: risk.activityRisk || 'Low',\n  summary: health.summary || '',\n  recommendations: recommendations,\n  caregiverReport: report.caregiverReport || '',\n  // ---- Extended detail (also persisted to Firestore) ----\n  nextCheckup: report.nextCheckup || '',\n  emergencyDetails: isEmergency ? {\n    priority: emerg.priority || '',\n    reason: emerg.reason || '',\n    immediateAction: emerg.immediateAction || '',\n    hospitalRecommendation: emerg.hospitalRecommendation || '',\n    emergencyContactRecommendation: emerg.emergencyContactRecommendation || '',\n  } : null,\n  dataQuality: input.dataQuality || {},\n  timestamp: input.timestamp,\n  processedAt: $now.toISO(),\n};"
+      },
+      "id": "f27c90ab-24b6-409f-a266-216040ed648c",
+      "name": "Assemble Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($('Assemble Final Response').item.json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "8dacfc9b-9685-4301-b5fe-1d4201bc46d2",
+      "name": "Respond to Frontend",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2496,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## VitalCare AI — Elder Care Monitoring\nPOST resident vitals to /webhook/vitalcare-ai. The payload is validated, analyzed by 5 sequential Groq AI agents, persisted to Firestore, and returned to the React app as one JSON object.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "1a09aabe-2cef-40af-b950-84404d29ee49",
+      "name": "Sticky Note 1a09aabe",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Normalize & Validate\nCoerces types, clamps out-of-range vitals, fills missing fields with safe defaults, and records data quality flags.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "c8ce99e2-f5d5-4e38-8e2f-6922b8ba37e5",
+      "name": "Sticky Note c8ce99e2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### AI Agents (Groq)\n1) Health Monitoring 2) Risk Prediction 3) Emergency 4) Recommendation 5) Caregiver Report. Each uses a structured output parser for guaranteed JSON.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "746e980d-2a6c-41a0-b087-4aa8a8084bdf",
+      "name": "Sticky Note 746e980d",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Assemble + Store + Respond\nMerges all agent outputs into the frontend contract, derives riskLevel, saves to Firestore, and responds with JSON + CORS headers.",
+        "height": 200,
+        "width": 300
+      },
+      "id": "f3ccf1c6-8fd2-4e02-93f6-3dc0008e4aae",
+      "name": "Sticky Note f3ccf1c6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -48
+      ]
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1408,
+        528
+      ],
+      "typeVersion": 1,
+      "id": "3009ecde-7832-430a-a0a2-5ee940c2e9e1",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Receive Resident Health Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize & Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Health Monitoring Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Monitoring Agent": {
+      "main": [
+        [
+          {
+            "node": "Risk Prediction Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Health": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Health Monitoring Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Output Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Health Monitoring Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Risk Prediction Agent": {
+      "main": [
+        [
+          {
+            "node": "Emergency Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Risk": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Risk Prediction Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Risk Output Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Risk Prediction Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emergency Agent": {
+      "main": [
+        [
+          {
+            "node": "Recommendation Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Emergency": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Emergency Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emergency Output Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Emergency Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recommendation Agent": {
+      "main": [
+        [
+          {
+            "node": "Caregiver Report Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Recommendations": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Recommendation Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recommendation Output Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Recommendation Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caregiver Report Agent": {
+      "main": [
+        [
+          {
+            "node": "Assemble Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model - Report": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Caregiver Report Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Caregiver Report Schema": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Caregiver Report Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Final Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Frontend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0c606405-bc9d-4e9d-9b63-28df8a032a28",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "cOTJhjYUp54LjDz0",
+  "tags": []
+}
