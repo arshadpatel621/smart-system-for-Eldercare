@@ -173,6 +173,43 @@ export async function addCareContact(contact: Omit<CareContact, 'id'>, targetEld
   return next;
 }
 
+export async function removeCareContact(contactId: string, targetElderId = defaultElderId) {
+  const data = await loadEldercareData(targetElderId);
+  const next = {
+    ...data,
+    contacts: data.contacts.filter((c) => c.id !== contactId),
+  };
+  await persistData(next, targetElderId);
+  return next;
+}
+
+export async function saveMedicalReport(
+  report: Omit<import('../types/eldercare').MedicalReport, 'id'>,
+  targetElderId = defaultElderId,
+) {
+  const data = await loadEldercareData(targetElderId);
+  const nextReport = { ...report, id: createId('report') };
+  const existing = data.reports || [];
+  const next = {
+    ...data,
+    reports: [nextReport, ...existing],
+  };
+  await persistData(next, targetElderId);
+  return next;
+}
+
+export async function removeMedicalReport(reportId: string, targetElderId = defaultElderId) {
+  const data = await loadEldercareData(targetElderId);
+  const existing = data.reports || [];
+  const next = {
+    ...data,
+    reports: existing.filter((r) => r.id !== reportId),
+  };
+  await persistData(next, targetElderId);
+  return next;
+}
+
+
 export async function saveDevice(
   device: Omit<DeviceConnection, 'id'> & { id?: string },
   targetElderId = defaultElderId,
@@ -280,10 +317,19 @@ export function getStorageMode() {
 
 export function formatFirebaseError(error: unknown) {
   if (!(error instanceof Error)) {
-    return 'Unable to load elder care data.';
+    return 'An unexpected error occurred.';
   }
 
   const message = error.message.toLowerCase();
+
+  if (
+    message.includes('auth/invalid-credential') ||
+    message.includes('invalid-credential') ||
+    message.includes('user-not-found') ||
+    message.includes('wrong-password')
+  ) {
+    return 'Invalid email or password. Use Quick Guest Access below or Create an Account if you do not have credentials yet.';
+  }
 
   if (message.includes('permission') || message.includes('insufficient permissions')) {
     return 'Firestore denied access. Check Firestore rules and make sure the database is enabled.';
@@ -299,3 +345,4 @@ export function formatFirebaseError(error: unknown) {
 
   return error.message;
 }
+

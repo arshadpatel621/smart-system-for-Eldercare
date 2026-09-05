@@ -22,6 +22,16 @@ export interface CareContact {
   notifyOnEmergency: boolean;
 }
 
+export interface MedicalReport {
+  id: string;
+  title: string;
+  category: string;
+  fileUrl?: string;
+  fileSize: string;
+  uploadedAt: string;
+  uploadedBy?: string;
+}
+
 export interface ElderProfile {
   id: string;
   fullName: string;
@@ -120,6 +130,7 @@ export interface EldercareData {
   devices: DeviceConnection[];
   safetyEvents: SafetyEvent[];
   alerts: AlertRecord[];
+  reports?: MedicalReport[];
 }
 
 export interface LatestVitals {

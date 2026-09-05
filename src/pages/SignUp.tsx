@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import type { UserRole } from '../types/auth';
+import { getDashboardPathForRole } from '../lib/access';
+import type { PublicUserRole } from '../types/auth';
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -10,13 +11,13 @@ export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [role, setRole] = useState<UserRole>('caregiver');
-  const [elderId, setElderId] = useState('demo-resident');
+  const [role, setRole] = useState<PublicUserRole>('caregiver');
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
     if (profile) {
-      navigate('/', { replace: true });
+      const target = getDashboardPathForRole(profile.role);
+      navigate(target, { replace: true });
     }
   }, [profile, navigate]);
 
@@ -44,16 +45,16 @@ export default function SignUp() {
       <div className="absolute top-[-10%] right-[-10%] h-[500px] w-[500px] rounded-full bg-indigo-600/20 blur-[120px]" />
       <div className="absolute bottom-[-10%] left-[-10%] h-[500px] w-[500px] rounded-full bg-blue-600/20 blur-[120px]" />
 
-      <div className="relative w-full max-w-2xl">
+      <div className="relative w-full max-w-xl">
         {/* Logo Section */}
         <div className="mb-10 text-center">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
-            <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+            <svg className="h-7 w-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
           </div>
           <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white">Create Account</h1>
-          <p className="mt-2 text-slate-400">Join the VitalCare health monitoring network.</p>
+          <p className="mt-2 text-slate-400">Join the VitalCare elder care network.</p>
         </div>
 
         <div className="overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-8 backdrop-blur-xl sm:p-10 shadow-2xl">
@@ -75,7 +76,7 @@ export default function SignUp() {
           ) : null}
 
           <form
-            className="grid gap-6 md:grid-cols-2"
+            className="space-y-5"
             onSubmit={(event) => {
               event.preventDefault();
               setFormError('');
@@ -85,21 +86,21 @@ export default function SignUp() {
                 return;
               }
 
-              void signUp({ fullName, email: email.trim(), password, role, elderId });
+              void signUp({ fullName, email: email.trim(), password, role });
             }}
           >
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Full Name</label>
               <input
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                placeholder="John Doe"
+                placeholder="e.g. Eleanor Vance"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
                 required
               />
             </div>
 
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Email Address</label>
               <input
                 type="email"
@@ -113,31 +114,46 @@ export default function SignUp() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Your Role</label>
-              <select
-                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                value={role}
-                onChange={(event) => setRole(event.target.value as UserRole)}
-              >
-                <option value="caregiver" className="bg-[#1a2235]">Caregiver</option>
-                <option value="elder" className="bg-[#1a2235]">Elder (Resident)</option>
-                <option value="admin" className="bg-[#1a2235]">Administrator</option>
-              </select>
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Account Role</label>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setRole('elder')}
+                  className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all ${
+                    role === 'elder'
+                      ? 'border-blue-500 bg-blue-500/20 text-white font-bold'
+                      : 'border-white/10 bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-3xl mb-1">👴</span>
+                  <span className="text-sm font-semibold">Elder</span>
+                  <span className="text-[10px] text-slate-400">Gets unique Elder ID</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setRole('caregiver')}
+                  className={`flex flex-col items-center justify-center p-4 rounded-2xl border transition-all ${
+                    role === 'caregiver'
+                      ? 'border-blue-500 bg-blue-500/20 text-white font-bold'
+                      : 'border-white/10 bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-3xl mb-1">👥</span>
+                  <span className="text-sm font-semibold">Caregiver</span>
+                  <span className="text-[10px] text-slate-400">Connects to Elders</span>
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Resident ID</label>
-              <input
-                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                placeholder="demo-resident"
-                value={elderId}
-                onChange={(event) => setElderId(event.target.value)}
-                required
-              />
-            </div>
+            {role === 'elder' && (
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-xs text-blue-300">
+                ℹ️ A unique shareable <strong>Elder ID</strong> (e.g. <code>ELD-7K4P92</code>) will automatically be generated for your account. You can share this ID with your caregiver to connect your care dashboard.
+              </div>
+            )}
 
             {!user && (
-              <>
+              <div className="grid gap-4 md:grid-cols-2 pt-1">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Password</label>
                   <input
@@ -160,12 +176,12 @@ export default function SignUp() {
                     required
                   />
                 </div>
-              </>
+              </div>
             )}
 
             <button
               disabled={loading}
-              className="md:col-span-2 group relative mt-4 w-full overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-4 font-bold text-white shadow-lg shadow-blue-600/20 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
+              className="group relative mt-4 w-full overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-4 font-bold text-white shadow-lg shadow-blue-600/20 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
             >
               <span className="relative flex items-center justify-center gap-2">
                 {loading ? (
@@ -178,7 +194,7 @@ export default function SignUp() {
                   </>
                 ) : (
                   <>
-                    {user ? 'Complete Setup' : 'Create Account'}
+                    {user ? 'Complete Setup' : `Register as ${role === 'elder' ? 'Elder' : 'Caregiver'}`}
                     <svg className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
@@ -188,7 +204,7 @@ export default function SignUp() {
             </button>
           </form>
 
-          <p className="mt-10 text-center text-sm text-slate-500">
+          <p className="mt-8 text-center text-sm text-slate-500">
             Already have an account?{' '}
             <Link to="/login" className="font-bold text-blue-500 hover:text-blue-400 transition-colors">
               Sign In

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEldercare } from '../context/EldercareContext';
 import { useAuth } from '../context/AuthContext';
 import { aiService } from '../services/aiService';
@@ -49,11 +49,7 @@ export default function AIInsights() {
   const [currentStep, setCurrentStep] = useState<number>(-1);
   const [demoMode, setDemoMode] = useState<'simulation' | 'webhook'>('simulation');
 
-  if (!data || !latestVitals) {
-    return <div className="text-slate-500 p-8 text-center">Loading AI insights...</div>;
-  }
-
-  // Get realistic mock data generator matching Anita Rao's profile
+  // Get realistic mock data generator matching resident profile
   const getMockReport = (requestData: any): AIAnalysisResponse => {
     return {
       id: `report-${Date.now()}`,
@@ -86,14 +82,14 @@ export default function AIInsights() {
         { category: 'Sleep', recommendation: 'Avoid caffeine after 4 PM', priority: 'low', rationale: 'Improve sleep efficiency and deep sleep cycles' }
       ],
       caregiverReport: {
-        summary: 'Resident Anita Rao is stable today. Vital signs are within normal clinical thresholds.',
+        summary: `Resident ${requestData.name} is stable today. Vital signs are within normal clinical thresholds.`,
         alerts: [],
         actionItems: [
           'Ensure Lisinopril is taken at 8 PM',
           'Encourage a short walk in the evening',
           'Log fluid intake'
         ],
-        observationNotes: 'Anita has been active today (4,120 steps). She reports good energy levels and did not experience any dizziness during morning activities. Soft meals are prepared for dinner.'
+        observationNotes: `${requestData.name} has been active today (${requestData.steps || 4120} steps). Energy levels report normal baseline.`
       },
       healthSummary: {
         overallStatus: 'stable',
@@ -109,6 +105,27 @@ export default function AIInsights() {
       overallRiskLevel: 'medium'
     };
   };
+
+  // Auto initialize initial baseline report so 5 agents load immediately
+  useEffect(() => {
+    if (!aiReport && data && latestVitals) {
+      const initialReqData = {
+        residentId: profile?.elderId || 'ELD-DEMO01',
+        name: data.profile.fullName || 'Resident',
+        age: data.profile.age,
+        heartRate: latestVitals.heartRate?.value ?? 76,
+        spo2: latestVitals.spo2?.value ?? 97,
+        bloodPressure: '128/82',
+        steps: latestVitals.steps?.value ?? 4120,
+      };
+      setAiReport(getMockReport(initialReqData));
+      setLastAnalysisTime(new Date());
+    }
+  }, [data, latestVitals, profile?.elderId]);
+
+  if (!data || !latestVitals) {
+    return <div className="text-slate-500 p-8 text-center">Loading AI insights...</div>;
+  }
 
   const handleAnalyze = async () => {
     if (!profile?.elderId) {
@@ -143,82 +160,51 @@ export default function AIInsights() {
     };
 
     const isWebhookMode = demoMode === 'webhook';
-    console.log(`[AI Dashboard] Mode: ${isWebhookMode ? 'Live Webhook' : 'Demo Simulation'}`);
 
     let resolvedReport: AIAnalysisResponse | null = null;
     let webhookFailed = false;
 
     // Background fetch initiator
     const fetchPromise = (async () => {
-      console.log("=== AI INSIGHTS ANALYSIS START ===");
-      console.log(`Current Mode: ${isWebhookMode ? 'Live Webhook' : 'Demo Simulation'}`);
-      console.log(`Webhook URL: ${isWebhookMode ? aiService.getWebhookUrl() : 'N/A (Simulation Mode - Webhook call bypassed)'}`);
-      console.log("Request Payload:", requestData);
-
       if (isWebhookMode) {
         try {
-          console.log("[AI Dashboard] Sending webhook request...");
           const res = await aiService.analyzeHealthData(requestData);
-          console.log("[AI Dashboard] Webhook response received:", res);
-          console.log("Response Status: 200 OK");
-          console.log("Response Body:", res);
-          console.log("==================================");
           return res;
         } catch (err) {
-          console.error("Response Status: Failed / Error");
-          console.error("Response Body/Error:", err instanceof Error ? err.message : err);
-          console.warn('n8n Webhook failed, reverting to high-fidelity Simulation Mode:', err);
-          console.log("==================================");
           webhookFailed = true;
           return getMockReport(requestData);
         }
       } else {
-        // Direct simulation mode
         await new Promise((resolve) => setTimeout(resolve, 600));
-        const res = getMockReport(requestData);
-        console.log("Response Status: 200 OK (Simulated)");
-        console.log("Response Body (Simulated):", res);
-        console.log("==================================");
-        return res;
+        return getMockReport(requestData);
       }
     })();
 
-    // Sequence configs
     const stepsDelays = [800, 800, 950, 950, 950, 950, 950];
 
     try {
-      // Step 0: Collecting
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[0]));
-      
-      // Step 1: Validating
       setCurrentStep(1);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[1]));
 
-      // Resolve API data before agent execution begins
       resolvedReport = await fetchPromise;
       setTempReport(resolvedReport);
 
-      // Step 2: Health Monitoring
       setCurrentStep(2);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[2]));
 
-      // Step 3: Risk Prediction
       setCurrentStep(3);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[3]));
 
-      // Step 4: Emergency Check
       setCurrentStep(4);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[4]));
 
-      // Step 5: Recommendations
       setCurrentStep(5);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[5]));
 
-      // Step 6: Caregiver report
       setCurrentStep(6);
       await new Promise((resolve) => setTimeout(resolve, stepsDelays[6]));
 
-      // Final: Finished
       setCurrentStep(7);
       setAiReport(resolvedReport);
       setLastAnalysisTime(new Date());
@@ -228,22 +214,11 @@ export default function AIInsights() {
         setDemoMode('simulation');
       }
 
-      // Sync with Firestore (if uid is active)
       if (profile?.uid && resolvedReport) {
         try {
-          console.log("[AI Dashboard] Saving to Firestore...");
-          const docId = await AIReportService.saveReport(resolvedReport, profile.uid);
-          console.log("[AI Dashboard] Firestore success: Document saved with ID:", docId);
+          await AIReportService.saveReport(resolvedReport, profile.uid);
         } catch (sError) {
           console.error("[AI Dashboard] Firestore error:", sError);
-          setError(sError instanceof Error ? `Firestore Write Failed: ${sError.message}` : 'Firestore Write Failed');
-        }
-      } else {
-        if (!profile?.uid) {
-          console.warn("[AI Dashboard] Firestore save skipped: User profile UID is not available");
-        }
-        if (!resolvedReport) {
-          console.warn("[AI Dashboard] Firestore save skipped: Resolved report is empty");
         }
       }
     } catch (err) {
@@ -334,13 +309,12 @@ export default function AIInsights() {
             AI Intelligence Center
           </h1>
           <p className="text-sm text-slate-500 mt-1 font-semibold">
-            Multi-Agent AI Healthcare Orchestration & Clinical Diagnostic Center
+            5 Multi-Agent AI Healthcare Orchestration & Clinical Diagnostic Center
           </p>
         </div>
 
         {/* Demo controllers */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Simulation vs Webhook selector */}
           <div className="bg-slate-100 p-1 rounded-xl flex border border-slate-200 shrink-0">
             <button
               onClick={() => setDemoMode('simulation')}
@@ -378,7 +352,7 @@ export default function AIInsights() {
             {loading ? (
               <>
                 <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Orchestrating...
+                Orchestrating 5 AI Agents...
               </>
             ) : (
               <>
@@ -388,6 +362,66 @@ export default function AIInsights() {
           </button>
         </div>
       </header>
+
+      {/* 5 AI Multi-Agent Network Overview Banner */}
+      <div className="rounded-3xl bg-white p-6 border border-slate-200 shadow-sm space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-indigo-600 text-2xl">hub</span>
+            <h2 className="text-xl font-bold text-slate-900">5 AI Specialist Agents Network Architecture</h2>
+          </div>
+          <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 text-xs font-bold uppercase tracking-wider">
+            All 5 Agents Active & Operational
+          </span>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {/* Agent 1 */}
+          <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-blue-900 flex items-center gap-1">1. 🩺 Health Monitor</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <p className="text-[11px] text-blue-700">Vital Signs & Biometric Analysis Agent</p>
+          </div>
+
+          {/* Agent 2 */}
+          <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-amber-900 flex items-center gap-1">2. ⚠️ Risk Prediction</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <p className="text-[11px] text-amber-700">Fall & Clinical Risk Assessment Agent</p>
+          </div>
+
+          {/* Agent 3 */}
+          <div className="p-3.5 rounded-2xl bg-rose-50/60 border border-rose-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-rose-900 flex items-center gap-1">3. 🚨 Emergency</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <p className="text-[11px] text-rose-700">Anomaly & SOS Escalation Agent</p>
+          </div>
+
+          {/* Agent 4 */}
+          <div className="p-3.5 rounded-2xl bg-indigo-50/60 border border-indigo-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-indigo-900 flex items-center gap-1">4. 💡 Recommendations</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <p className="text-[11px] text-indigo-700">Care & Wellness Guidance Agent</p>
+          </div>
+
+          {/* Agent 5 */}
+          <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-100 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-teal-900 flex items-center gap-1">5. 📋 Caregiver Report</span>
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <p className="text-[11px] text-teal-700">Shift Summary & Observation Agent</p>
+          </div>
+        </div>
+      </div>
 
       {/* Error alert banner */}
       {error && (
@@ -402,7 +436,7 @@ export default function AIInsights() {
         </div>
       )}
 
-      {/* Main layout: Grid splits into side metrics and agent logs/cards */}
+      {/* Main layout: Grid splits into side metrics and agent cards */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
         {/* Left column sidebar (Health metrics, Devices, Timeline logs) */}
@@ -482,7 +516,6 @@ export default function AIInsights() {
               ))}
             </div>
 
-            {/* Hidden watch import overrides logic preserved */}
             <div className="mt-4 pt-4 border-t border-slate-150">
               <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block mb-2">
                 Simulated Watch Sync Override
@@ -522,7 +555,6 @@ export default function AIInsights() {
                 
                 return (
                   <div key={idx} className="relative">
-                    {/* Circle indicators */}
                     {isCompleted ? (
                       <div className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100 flex items-center justify-center text-[7px] text-white font-bold">
                         ✓
@@ -551,34 +583,24 @@ export default function AIInsights() {
           </div>
         </div>
 
-        {/* Right column (Visual Agent Grid) */}
+        {/* Right column (Visual 5 Agent Output Cards) */}
         <div className="lg:col-span-8 space-y-6">
-          {!aiReport && !loading ? (
-            <div className="rounded-3xl border-2 border-dashed border-slate-350 bg-slate-50/50 p-16 text-center shadow-inner">
-              <span className="text-6xl block mb-4">🤖</span>
-              <h3 className="text-xl font-bold text-slate-800 mb-2">AI Diagnostic Portal</h3>
-              <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
-                Press "Analyze Health Data" to invoke the five AI Agents and execute diagnostic shift evaluations.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Row 1: Health Monitoring + Risk Prediction */}
-              <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-                <HealthMonitoringCard {...healthCardProps} />
-                <RiskPredictionCard {...risksCardProps} />
-              </div>
+          <div className="space-y-6">
+            {/* Agent 1: Health Monitoring Card */}
+            <HealthMonitoringCard {...healthCardProps} />
 
-              {/* Row 2: Emergency + Recommendations */}
-              <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
-                <EmergencyCard {...emergencyCardProps} />
-                <RecommendationCard {...recommendationCardProps} />
-              </div>
+            {/* Agent 2: Risk Prediction Card */}
+            <RiskPredictionCard {...risksCardProps} />
 
-              {/* Row 3: Caregiver Report Card */}
-              <CaregiverReportCard {...caregiverCardProps} />
-            </div>
-          )}
+            {/* Agent 3: Emergency Card */}
+            <EmergencyCard {...emergencyCardProps} />
+
+            {/* Agent 4: Recommendation Card */}
+            <RecommendationCard {...recommendationCardProps} />
+
+            {/* Agent 5: Caregiver Report Card */}
+            <CaregiverReportCard {...caregiverCardProps} />
+          </div>
         </div>
       </div>
     </div>

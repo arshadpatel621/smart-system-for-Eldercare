@@ -1,1 +1,19 @@
-{}
+{
+  "cameras": [
+    {
+      "id": "88b9ab17-ced4-4f86-acb1-a57981192d5a",
+      "name": "helllo",
+      "brand": "cpplus",
+      "location": "living_room",
+      "ipAddress": "192.168.29.63",
+      "port": 5543,
+      "onvifPort": 80,
+      "username": "admin",
+      "passwordEncrypted": "cjA/9eun4LKaWkfcMIo5XA==:Zc6AeNdXuqDlCIqtS87GuA==",
+      "enabled": true,
+      "healthStatus": "unknown",
+      "createdAt": "2026-09-05T13:01:55.049Z",
+      "updatedAt": "2026-09-05T13:03:01.427Z"
+    }
+  ]
+}

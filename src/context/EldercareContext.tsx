@@ -11,6 +11,9 @@ import { useAuth } from './AuthContext';
 import {
   acknowledgeAlert,
   addCareContact,
+  removeCareContact,
+  saveMedicalReport,
+  removeMedicalReport,
   addMetric,
   addSafetyEvent,
   formatFirebaseError,
@@ -27,6 +30,7 @@ import { buildRecommendations, evaluateAlerts, getLatestVitals } from '../lib/al
 import type {
   AlertRecord,
   CareContact,
+  MedicalReport,
   DeviceConnection,
   EldercareData,
   ElderProfile,
@@ -49,12 +53,16 @@ interface EldercareContextValue {
   createMedication: (medication: Omit<Medication, 'id'> & { id?: string }) => Promise<void>;
   takeMedication: (medicationId: string, scheduledFor: string) => Promise<void>;
   createContact: (contact: Omit<CareContact, 'id'>) => Promise<void>;
+  deleteContact: (contactId: string) => Promise<void>;
+  createMedicalReport: (report: Omit<MedicalReport, 'id'>) => Promise<void>;
+  removeMedicalReport: (reportId: string) => Promise<void>;
   updateDevice: (device: Omit<DeviceConnection, 'id'> & { id?: string }) => Promise<void>;
   createSafetyEvent: (event: Omit<SafetyEvent, 'id'>) => Promise<void>;
   confirmAlert: (alert: AlertRecord) => Promise<void>;
   importWatchData: (source: DeviceConnection['source']) => Promise<void>;
   enableBrowserNotifications: () => Promise<void>;
 }
+
 
 const EldercareContext = createContext<EldercareContextValue | undefined>(undefined);
 
@@ -170,7 +178,11 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     takeMedication: async (medicationId, scheduledFor) =>
       persist(() => markMedicationTaken(medicationId, scheduledFor, activeElderId)),
     createContact: async (contact) => persist(() => addCareContact(contact, activeElderId)),
+    deleteContact: async (contactId) => persist(() => removeCareContact(contactId, activeElderId)),
+    createMedicalReport: async (report) => persist(() => saveMedicalReport(report, activeElderId)),
+    removeMedicalReport: async (reportId) => persist(() => removeMedicalReport(reportId, activeElderId)),
     updateDevice: async (device) => persist(() => saveDevice(device, activeElderId)),
+
     createSafetyEvent: async (event) => persist(() => addSafetyEvent(event, activeElderId)),
     confirmAlert: async (alert) => persist(() => acknowledgeAlert(alert, activeElderId)),
     importWatchData: async (source) => persist(() => importWearableSnapshot(source, activeElderId)),

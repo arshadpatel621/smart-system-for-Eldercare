@@ -1,81 +1,93 @@
-import type {
-  AlertRecord,
-  CareContact,
-  DeviceConnection,
-  EldercareData,
-  ElderProfile,
-  HealthMetric,
-  Medication,
-  MedicationLog,
-  SafetyEvent,
-} from '../types/eldercare';
+import type { EldercareData, MedicalReport, AlertRecord, DeviceConnection, Medication, MedicationLog, SafetyEvent } from '../types/eldercare';
 
-function isoHoursAgo(hoursAgo: number) {
-  return new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+function isoHoursAgo(hours: number) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
-const profile: ElderProfile = {
-  id: 'demo-resident',
+const profile = {
+  id: 'ELD-7K4P92',
   fullName: 'Anita Rao',
-  photoUrl:
-    'https://images.unsplash.com/photo-1581579438747-104c53d10f48?auto=format&fit=crop&w=900&q=80',
   age: 74,
   gender: 'Female',
   bloodGroup: 'B+',
   heightCm: 158,
-  weightKg: 67,
-  conditions: ['Hypertension', 'Mild diabetes'],
+  weightKg: 63,
+  conditions: ['Hypertension', 'Mild Arthritis'],
   allergies: ['Penicillin'],
-  careNotes: 'Needs soft meals at night and supervised exercise after 5 PM.',
+  careNotes: 'Prefers morning walks. Needs reminders for evening blood pressure medication.',
   baseline: {
     minHeartRate: 58,
-    maxHeartRate: 98,
+    maxHeartRate: 102,
     minSpo2: 94,
-    maxSystolic: 135,
+    maxSystolic: 138,
     maxDiastolic: 88,
-    dailyStepsTarget: 5500,
-    sleepTargetHours: 7,
-    hydrationTargetLiters: 2.1,
+    dailyStepsTarget: 4500,
+    sleepTargetHours: 7.5,
+    hydrationTargetLiters: 2.0,
   },
 };
 
-const contacts: CareContact[] = [
+const contacts = [
   {
     id: 'contact-1',
-    name: 'Rohan Rao',
-    relation: 'Son',
-    role: 'Family caregiver',
-    phone: '+91 9876543210',
+    name: 'Dr. Sarah Wilson',
+    relation: 'Primary Physician',
+    role: 'Doctor',
+    phone: '+1 555-0100',
     notifyOnEmergency: true,
   },
   {
     id: 'contact-2',
-    name: 'Dr. Meera Patel',
-    relation: 'Doctor',
-    role: 'Primary physician',
-    phone: '+91 9898989898',
+    name: 'Rajesh Rao',
+    relation: 'Son',
+    role: 'Primary Caregiver',
+    phone: '+1 555-0144',
     notifyOnEmergency: true,
   },
 ];
 
-const metrics: HealthMetric[] = [
-  { id: 'metric-1', type: 'heart_rate', value: 76, unit: 'bpm', source: 'watch', recordedAt: isoHoursAgo(0.5) },
-  { id: 'metric-2', type: 'spo2', value: 97, unit: '%', source: 'watch', recordedAt: isoHoursAgo(1) },
+const metrics = [
+  {
+    id: 'metric-1',
+    type: 'heart_rate' as const,
+    value: 74,
+    unit: 'bpm',
+    source: 'watch' as const,
+    recordedAt: isoHoursAgo(0.5),
+  },
+  {
+    id: 'metric-2',
+    type: 'spo2' as const,
+    value: 98,
+    unit: '%',
+    source: 'watch' as const,
+    recordedAt: isoHoursAgo(0.5),
+  },
   {
     id: 'metric-3',
-    type: 'blood_pressure',
-    value: 128,
-    secondaryValue: 82,
+    type: 'blood_pressure' as const,
+    value: 124,
+    secondaryValue: 81,
     unit: 'mmHg',
-    source: 'manual',
+    source: 'manual' as const,
     recordedAt: isoHoursAgo(2),
   },
-  { id: 'metric-4', type: 'sleep_hours', value: 7.2, unit: 'hours', source: 'watch', recordedAt: isoHoursAgo(9) },
-  { id: 'metric-5', type: 'steps', value: 4120, unit: 'steps', source: 'watch', recordedAt: isoHoursAgo(0.25) },
-  { id: 'metric-6', type: 'hydration', value: 1.4, unit: 'liters', source: 'manual', recordedAt: isoHoursAgo(1.5) },
-  { id: 'metric-7', type: 'calories', value: 1320, unit: 'kcal', source: 'manual', recordedAt: isoHoursAgo(1.5) },
-  { id: 'metric-8', type: 'mood', value: 4, unit: '/5', source: 'manual', note: 'Feeling stable', recordedAt: isoHoursAgo(3) },
-  { id: 'metric-9', type: 'weight', value: 67, unit: 'kg', source: 'manual', recordedAt: isoHoursAgo(24) },
+  {
+    id: 'metric-4',
+    type: 'steps' as const,
+    value: 3420,
+    unit: 'steps',
+    source: 'watch' as const,
+    recordedAt: isoHoursAgo(1),
+  },
+  {
+    id: 'metric-5',
+    type: 'sleep_hours' as const,
+    value: 7.4,
+    unit: 'hours',
+    source: 'watch' as const,
+    recordedAt: isoHoursAgo(8),
+  },
 ];
 
 const medications: Medication[] = [
@@ -84,7 +96,7 @@ const medications: Medication[] = [
     name: 'Lisinopril',
     dosage: '10 mg',
     schedule: ['08:00', '20:00'],
-    instructions: 'After food with water.',
+    instructions: 'Take with water before meals.',
     active: true,
   },
   {
@@ -150,6 +162,33 @@ const alerts: AlertRecord[] = [
   },
 ];
 
+const reports: MedicalReport[] = [
+  {
+    id: 'report-1',
+    title: 'Monthly Wellness Summary - June',
+    category: 'Wellness',
+    fileSize: '2.4 MB',
+    uploadedAt: isoHoursAgo(24),
+    uploadedBy: 'Dr. Sarah Wilson',
+  },
+  {
+    id: 'report-2',
+    title: 'Cardiology & Blood Pressure Assessment',
+    category: 'Cardiology',
+    fileSize: '1.1 MB',
+    uploadedAt: isoHoursAgo(72),
+    uploadedBy: 'Dr. Sarah Wilson',
+  },
+  {
+    id: 'report-3',
+    title: 'Weekly Biometric Vitals Log',
+    category: 'Laboratory',
+    fileSize: '0.8 MB',
+    uploadedAt: isoHoursAgo(120),
+    uploadedBy: 'Sarah (Caregiver)',
+  },
+];
+
 export const demoData: EldercareData = {
   profile,
   contacts,
@@ -159,6 +198,7 @@ export const demoData: EldercareData = {
   devices,
   safetyEvents,
   alerts,
+  reports,
 };
 
 export function cloneDemoData(options?: { elderId?: string; fullName?: string }) {

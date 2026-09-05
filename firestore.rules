@@ -25,14 +25,46 @@ service cloud.firestore {
       return role() == 'admin';
     }
 
+    function isCaregiver() {
+      return role() == 'caregiver';
+    }
+
+    function isElder() {
+      return role() == 'elder';
+    }
+
+    function hasRelationship(elderId) {
+      return exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + elderId ));
+    }
+
     function canAccessElder(elderId) {
-      return isAdmin() || assignedElderId() == elderId;
+      return isAdmin() 
+        || (signedIn() && isElder() && (assignedElderId() == elderId || (userDoc().data.elderId == elderId)))
+        || (signedIn() && isCaregiver() && (hasRelationship(elderId) || (elderId in userDoc().data.linkedElderIds)))
+        || (signedIn() && request.resource.data.id == elderId);
     }
 
     match /users/{uid} {
-      allow create: if signedIn() && request.auth.uid == uid;
-      allow read, update: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // Allow create if authenticated and not self-assigning admin role
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role != 'admin';
+      // Allow signed in users to read profiles for elder lookup and relationship management
+      allow read: if signedIn();
+      // Prevent normal users from altering their role field during updates
+      allow update: if signedIn() && (
+        isAdmin() || (request.auth.uid == uid && request.resource.data.role == resource.data.role)
+      );
       allow delete: if isAdmin();
+    }
+
+    match /elderIds/{elderId} {
+      allow create, update: if signedIn() && request.resource.data.elderUid == request.auth.uid;
+      allow read: if signedIn();
+    }
+
+    match /relationships/{relId} {
+      allow create: if signedIn() && (isCaregiver() || isAdmin()) && request.resource.data.caregiverUid == request.auth.uid && request.resource.data.status == 'active';
+      allow read: if signedIn() && (request.auth.uid == resource.data.caregiverUid || request.auth.uid == resource.data.elderUid || isAdmin());
+      allow update, delete: if isAdmin();
     }
 
     match /elders/{elderId} {

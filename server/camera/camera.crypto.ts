@@ -70,3 +70,20 @@ export function isEncrypted(value: string): boolean {
   const b64Regex = /^[A-Za-z0-9+/]+=*$/;
   return b64Regex.test(parts[0]) && b64Regex.test(parts[1]);
 }
+
+/**
+ * Verifies the encryption configuration at server startup.
+ * Logs a warning if using the insecure default development key.
+ * Call this once during server initialization.
+ */
+export function verifyEncryptionConfig(): void {
+  const rawKey = process.env.ENCRYPTION_KEY;
+  if (!rawKey) {
+    console.warn(
+      '[CRYPTO] ⚠️  ENCRYPTION_KEY not set — using default dev key. ' +
+      'Set ENCRYPTION_KEY in server/.env before deploying to production.'
+    );
+  } else {
+    console.log('[CRYPTO] ✅ Encryption key loaded from environment.');
+  }
+}
