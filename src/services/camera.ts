@@ -143,11 +143,103 @@ export const toggleCamera = (id: string, enabled: boolean) =>
 
 // ─── Probe & Discovery ────────────────────────────────────────────────────────
 
+export const AGENT_BASE = 'http://127.0.0.1:8000';
+
+export type DiagnosticStage =
+  | 'ip_reachability'
+  | 'onvif_detection'
+  | 'onvif_authentication'
+  | 'media_profile'
+  | 'rtsp_detection'
+  | 'rtsp_test';
+
+export type StageStatus = 'success' | 'failed' | 'skipped' | 'not_run';
+
+export interface StageDetail {
+  status: StageStatus;
+  message: string;
+}
+
+export interface AgentDetectResult {
+  success: boolean;
+  ip: string;
+  host_reachable?: boolean;
+  open_ports?: number[];
+  onvif: boolean;
+  rtsp: boolean;
+  stage: DiagnosticStage;
+  streamUri?: string;
+  manufacturer?: string;
+  model?: string;
+  firmware?: string;
+  message: string;
+  stages: Record<DiagnosticStage, StageDetail>;
+}
+
+export interface AgentHealthStatus {
+  status: 'online' | 'offline';
+  agent: string;
+  version: string;
+  bound: string;
+}
+
+export const checkAgentStatus = async (): Promise<AgentHealthStatus | null> => {
+  try {
+    const res = await fetch(`${AGENT_BASE}/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
+export const discoverViaAgent = async (): Promise<DiscoveredCamera[]> => {
+  const res = await fetch(`${AGENT_BASE}/discover`, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error('VitalCare Local Camera Agent is not running');
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Agent discovery failed');
+  return (json.devices ?? []).map((d: any) => ({
+    ipAddress: d.ip,
+    onvifPort: d.onvifPort ?? 80,
+    discoveredAt: d.discoveredAt ?? new Date().toISOString(),
+    rtspAvailable: true,
+  }));
+};
+
+export const detectCameraViaAgent = async (input: {
+  ipAddress: string;
+  username: string;
+  password?: string;
+  port?: number;
+  onvifPort?: number;
+  customRtspPath?: string;
+}): Promise<AgentDetectResult> => {
+  const res = await fetch(`${AGENT_BASE}/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ip: input.ipAddress,
+      username: input.username,
+      password: input.password ?? '',
+      port: input.port ?? 554,
+      onvifPort: input.onvifPort ?? 80,
+      customRtspPath: input.customRtspPath ?? '',
+    }),
+  });
+  if (!res.ok) throw new Error(`Agent detection request failed (${res.status})`);
+  return await res.json();
+};
+
 export const testCameraConnection = (id: string) =>
   apiFetch<ProbeResult>(`/api/cameras/${id}/test`, { method: 'POST' });
 
-export const discoverCamerasOnLAN = () =>
-  apiFetch<DiscoveredCamera[]>('/api/cameras/discover');
+export const discoverCamerasOnLAN = async (): Promise<DiscoveredCamera[]> => {
+  const agent = await checkAgentStatus();
+  if (agent) {
+    return discoverViaAgent();
+  }
+  return apiFetch<DiscoveredCamera[]>('/api/cameras/discover');
+};
 
 // ─── Status & Streaming ───────────────────────────────────────────────────────
 

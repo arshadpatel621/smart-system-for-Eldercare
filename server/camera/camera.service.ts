@@ -112,6 +112,21 @@ export class CameraService {
     this.onStatusChangeCb = cb;
   }
 
+  /** Gracefully shuts down all active camera streams */
+  async shutdown(): Promise<void> {
+    log('info', 'system', 'Shutting down CameraService processes...');
+    for (const [id, proc] of this.processes.entries()) {
+      try {
+        proc.kill('SIGTERM');
+      } catch { /* ignore */ }
+    }
+    this.processes.clear();
+    for (const timer of this.timers.values()) {
+      clearTimeout(timer);
+    }
+    this.timers.clear();
+  }
+
   // ─── CRUD Operations ───────────────────────────────────────────────────────
 
   async getCameras(): Promise<CameraPublicRecord[]> {

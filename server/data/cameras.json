@@ -9,11 +9,11 @@
       "port": 5543,
       "onvifPort": 80,
       "username": "admin",
-      "passwordEncrypted": "cjA/9eun4LKaWkfcMIo5XA==:Zc6AeNdXuqDlCIqtS87GuA==",
+      "passwordEncrypted": "JH9MLOackZdas5r87Fq7eA==:02axO/rBD183h4cP7CEnDA==",
       "enabled": true,
       "healthStatus": "unknown",
       "createdAt": "2026-09-05T13:01:55.049Z",
-      "updatedAt": "2026-09-05T13:03:01.427Z"
+      "updatedAt": "2026-09-05T14:15:02.197Z"
     }
   ]
 }

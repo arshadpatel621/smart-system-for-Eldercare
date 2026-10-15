@@ -7,9 +7,9 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
   fetchCameras, createCamera, updateCamera, deleteCamera,
-  toggleCamera, testCameraConnection,
+  toggleCamera, testCameraConnection, checkAgentStatus,
   type CameraPublicRecord, type CreateCameraInput,
-  type UpdateCameraInput, type ProbeResult,
+  type UpdateCameraInput, type ProbeResult, type AgentHealthStatus,
 } from '../services/camera';
 
 export function useCameraManager() {
@@ -20,6 +20,21 @@ export function useCameraManager() {
   const [probeResult, setProbeResult] = useState<ProbeResult | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [agentInfo, setAgentInfo] = useState<AgentHealthStatus | null>(null);
+
+  /** Checks Local Camera Agent health on localhost:8000 */
+  const checkAgent = useCallback(async () => {
+    setAgentStatus('checking');
+    const info = await checkAgentStatus();
+    if (info && info.status === 'online') {
+      setAgentStatus('online');
+      setAgentInfo(info);
+    } else {
+      setAgentStatus('offline');
+      setAgentInfo(null);
+    }
+  }, []);
 
   /** Loads all cameras from server */
   const refresh = useCallback(async () => {
@@ -35,7 +50,10 @@ export function useCameraManager() {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    void checkAgent();
+  }, [refresh, checkAgent]);
 
   /** Creates a new camera */
   const addCamera = async (input: CreateCameraInput): Promise<boolean> => {
@@ -113,7 +131,7 @@ export function useCameraManager() {
 
   return {
     cameras, loading, error, testingId, probeResult,
-    deletingId, togglingId,
+    deletingId, togglingId, agentStatus, agentInfo, checkAgent,
     refresh, addCamera, editCamera, removeCamera, toggle, runTest,
     clearError: () => setError(null),
     clearProbe: () => setProbeResult(null),
