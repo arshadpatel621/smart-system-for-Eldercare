@@ -7,7 +7,7 @@ import type { UserRole } from '../types/auth';
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile, resetPassword, hasFirebaseConfig, isAuthAvailable } = useAuth();
+  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile, resetPassword, hasFirebaseConfig } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [email, setEmail] = useState('');

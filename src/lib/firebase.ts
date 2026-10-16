@@ -1,7 +1,7 @@
-import { initializeApp } from 'firebase/app';
-import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getAnalytics, isSupported } from 'firebase/analytics';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -25,9 +25,9 @@ const requiredConfig = [
 export const hasFirebaseConfig = requiredConfig.every((key) => typeof key === 'string' && key.trim().length > 0);
 export const elderId = import.meta.env.VITE_FIREBASE_ELDER_ID || 'demo-resident';
 
-let app = null;
-let auth = null;
-let db = null;
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
 
 if (hasFirebaseConfig) {
   try {
@@ -45,7 +45,7 @@ export const isAuthAvailable = Boolean(auth);
 export const googleProvider = new GoogleAuthProvider();
 
 // Initialize Analytics if supported and config exists
-export const analytics = app && typeof window !== 'undefined' 
-  ? isSupported().then(supported => supported ? getAnalytics(app!) : null)
+export const analytics: Promise<Analytics | null> | null = app && typeof window !== 'undefined' 
+  ? isSupported().then(supported => (supported && app ? getAnalytics(app) : null))
   : null;
 
