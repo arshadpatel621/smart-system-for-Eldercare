@@ -60,14 +60,14 @@ export default function SignUp() {
         <div className="overflow-hidden rounded-[32px] border border-white/10 bg-white/5 p-8 backdrop-blur-xl sm:p-10 shadow-2xl">
           {error || formError ? (
             <div className="mb-8 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              <div className="flex items-center justify-between gap-4">
-                <span>{formError || error}</span>
+              <div className="flex items-start justify-between gap-4">
+                <span className="whitespace-pre-line leading-relaxed">{formError || error}</span>
                 <button
                   onClick={() => {
                     clearError();
                     setFormError('');
                   }}
-                  className="font-bold hover:text-white transition-colors text-red-300"
+                  className="font-bold hover:text-white transition-colors text-red-300 shrink-0 mt-0.5"
                 >
                   Close
                 </button>

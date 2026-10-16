@@ -34,6 +34,12 @@ export default function Login() {
     if (!selectedRole) return;
     clearError();
     setRoleMismatchNotice(null);
+    if (typeof window !== 'undefined') {
+      console.log('[VitalCare Auth] Starting Google Sign-In attempt:', {
+        hostname: window.location.hostname,
+        targetRole: selectedRole,
+      });
+    }
     try {
       await signInWithGoogle({ role: selectedRole });
     } catch {
@@ -237,9 +243,9 @@ export default function Login() {
 
             {error ? (
               <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-                <div className="flex items-center justify-between gap-4">
-                  <span>{error}</span>
-                  <button onClick={clearError} className="font-bold hover:text-white transition-colors text-red-300">
+                <div className="flex items-start justify-between gap-4">
+                  <span className="whitespace-pre-line leading-relaxed">{error}</span>
+                  <button onClick={clearError} className="font-bold hover:text-white transition-colors text-red-300 shrink-0 mt-0.5">
                     Close
                   </button>
                 </div>

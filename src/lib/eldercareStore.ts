@@ -1,6 +1,6 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { cloneDemoData } from './mockData';
-import { auth, db, elderId as defaultElderId, hasFirebaseConfig } from './firebase';
+import { app, auth, db, elderId as defaultElderId, hasFirebaseConfig } from './firebase';
 import type {
   AlertRecord,
   CareContact,
@@ -572,35 +572,59 @@ export function getStorageMode() {
   return hasFirebaseConfig ? 'firebase' : 'local';
 }
 
-export function formatFirebaseError(error: unknown) {
-  if (!(error instanceof Error)) {
+export function formatFirebaseError(error: unknown): string {
+  if (!error) {
     return 'An unexpected error occurred.';
   }
 
-  const message = error.message.toLowerCase();
+  const errWithCode = error as { code?: string; message?: string };
+  const errorCode = typeof errWithCode?.code === 'string' ? errWithCode.code : '';
+  const rawMessage = typeof errWithCode?.message === 'string' 
+    ? errWithCode.message 
+    : (error instanceof Error ? error.message : String(error));
+  const message = rawMessage.toLowerCase();
+
+  if (errorCode === 'auth/unauthorized-domain' || message.includes('unauthorized-domain')) {
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+    const authDomain = app?.options.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'unknown';
+    const projectId = app?.options.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || 'unknown';
+
+    console.error('[Firebase Auth Domain Diagnostic]', {
+      errorCode: 'auth/unauthorized-domain',
+      currentHostname: currentHost,
+      activeAuthDomain: authDomain,
+      activeProjectId: projectId,
+    });
+
+    return `Firebase Auth Error [auth/unauthorized-domain]: Domain "${currentHost}" is not authorized for Firebase project "${projectId}" (authDomain: "${authDomain}").
+
+Action required:
+1. Open Firebase Console specifically for project "${projectId}" (do NOT use DoubtBox or another project).
+2. Go to Authentication → Settings → Authorized domains.
+3. Click "Add domain" and add "${currentHost}".`;
+  }
+
+  if (errorCode === 'auth/popup-closed-by-user' || message.includes('popup-closed-by-user')) {
+    return 'Sign-in popup was closed before completing authentication.';
+  }
+
+  if (errorCode === 'auth/cancelled-popup-request' || message.includes('popup-blocked') || message.includes('cancelled-popup-request')) {
+    return 'Sign-in popup was blocked by your browser. Please allow popups for this site.';
+  }
+
+  if (errorCode === 'auth/operation-not-allowed' || message.includes('operation-not-allowed')) {
+    const projectId = app?.options.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || 'unknown';
+    return `Google or Email Sign-In is not enabled for Firebase project "${projectId}". Go to Firebase Console → Project "${projectId}" → Authentication → Sign-in method to enable it.`;
+  }
 
   if (message.includes('auth is not available') || message.includes('auth is not ready')) {
     return 'Firebase Authentication is not configured or offline. Please check your .env settings and restart the Vite server, or use "Quick Guest Access" below to continue.';
   }
 
-  if (message.includes('popup-closed-by-user')) {
-    return 'Sign-in popup was closed before completing authentication.';
-  }
-
-  if (message.includes('popup-blocked') || message.includes('cancelled-popup-request')) {
-    return 'Sign-in popup was blocked by your browser. Please allow popups for this site.';
-  }
-
-  if (message.includes('unauthorized-domain')) {
-    return 'This domain is not authorized in Firebase Console. Go to Firebase Console → Authentication → Settings → Authorized domains and add localhost.';
-  }
-
-  if (message.includes('operation-not-allowed')) {
-    return 'Google or Email Sign-In is not enabled in Firebase Console. Go to Firebase Console → Authentication → Sign-in method to enable it.';
-  }
-
   if (
-    message.includes('auth/invalid-credential') ||
+    errorCode === 'auth/invalid-credential' ||
+    errorCode === 'auth/user-not-found' ||
+    errorCode === 'auth/wrong-password' ||
     message.includes('invalid-credential') ||
     message.includes('user-not-found') ||
     message.includes('wrong-password')
@@ -608,7 +632,7 @@ export function formatFirebaseError(error: unknown) {
     return 'Invalid email or password. Use Quick Guest Access below or Create an Account if you do not have credentials yet.';
   }
 
-  if (message.includes('permission') || message.includes('insufficient permissions')) {
+  if (errorCode === 'permission-denied' || message.includes('permission') || message.includes('insufficient permissions')) {
     return 'Firestore denied access. Check Firestore rules and make sure the database is enabled.';
   }
 
@@ -620,6 +644,6 @@ export function formatFirebaseError(error: unknown) {
     return 'Firestore is not ready yet. Enable Firestore Database in the Firebase console.';
   }
 
-  return error.message;
+  return rawMessage;
 }
 

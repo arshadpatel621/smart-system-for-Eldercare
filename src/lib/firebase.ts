@@ -35,12 +35,22 @@ if (hasFirebaseConfig) {
     auth = getAuth(app);
     db = getFirestore(app);
     void setPersistence(auth, browserLocalPersistence);
+
+    if (typeof window !== 'undefined') {
+      console.log('[VitalCare Firebase Initialized]', {
+        hostname: window.location.hostname,
+        authDomain: app.options.authDomain,
+        projectId: app.options.projectId,
+      });
+    }
   } catch (error) {
     console.warn('[Firebase] Failed to initialize Firebase app or auth:', error);
   }
 }
 
 export { app, auth, db };
+export const firebaseProjectId = firebaseConfig.projectId;
+export const firebaseAuthDomain = firebaseConfig.authDomain;
 export const isAuthAvailable = Boolean(auth);
 export const googleProvider = new GoogleAuthProvider();
 
