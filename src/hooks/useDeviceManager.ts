@@ -3,9 +3,9 @@ import { DeviceService } from '../services/deviceService';
 import type { Device, CreateDeviceInput } from '../types/device';
 import { useEldercare } from '../context/EldercareContext';
 
-export function useDeviceManager() {
-  const { data } = useEldercare();
-  const patientId = data?.profile?.id ?? 'default-patient';
+export function useDeviceManager(residentIdParam?: string) {
+  const { data, activeElderId } = useEldercare();
+  const patientId = residentIdParam || activeElderId || data?.profile?.id || 'demo-resident';
   
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,12 +16,11 @@ export function useDeviceManager() {
       setLoading(true);
       setError(null);
       
-      // Dummy data seeding removed
-      
       const loaded = await DeviceService.getDevicesForResident(patientId);
-      setDevices(loaded);
+      setDevices(Array.isArray(loaded) ? loaded : []);
     } catch (err: any) {
-      setError(err.message ?? 'Failed to load devices');
+      console.warn('Failed to load devices in useDeviceManager:', err);
+      setError(err?.message ?? 'Failed to load devices');
     } finally {
       setLoading(false);
     }
@@ -48,7 +47,7 @@ export function useDeviceManager() {
   const updateDevice = async (id: string, updates: Partial<Device>) => {
     try {
       setLoading(true);
-      const updated = await DeviceService.updateDevice(id, updates);
+      const updated = await DeviceService.updateDevice(id, updates, patientId);
       setDevices((prev) => prev.map((d) => (d.id === id ? updated : d)));
       return true;
     } catch (err: any) {
@@ -62,7 +61,7 @@ export function useDeviceManager() {
   const removeDevice = async (id: string) => {
     try {
       setLoading(true);
-      await DeviceService.removeDevice(id);
+      await DeviceService.removeDevice(id, patientId);
       setDevices((prev) => prev.filter((d) => d.id !== id));
       return true;
     } catch (err: any) {

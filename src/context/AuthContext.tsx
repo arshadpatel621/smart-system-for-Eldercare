@@ -13,6 +13,7 @@ import {
   formatFirebaseError,
   getUserProfile,
   saveProfileForCurrentUser,
+  sendPasswordReset,
   signInWithEmail,
   signInWithGoogleAccount,
   signOutUser,
@@ -38,7 +39,7 @@ interface AuthContextValue {
     elderId?: string;
   }) => Promise<void>;
   signInWithGoogle: (input: { role: UserRole; elderId?: string; fullName?: string }) => Promise<void>;
-
+  resetPassword: (email: string) => Promise<void>;
   updateProfile: (updates: Partial<EditableProfileFields>) => Promise<void>;
   enableGuestMode: (role?: UserRole) => void;
 
@@ -168,6 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       signInWithGoogle: async (input) => {
         await runAuthAction(() => signInWithGoogleAccount(input));
+      },
+      resetPassword: async (targetEmail: string) => {
+        await runAuthAction(() => sendPasswordReset(targetEmail));
       },
       enableGuestMode: (guestRole: UserRole = 'admin') => {
         const guestProfile: AppUserProfile = {

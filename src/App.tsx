@@ -53,11 +53,15 @@ const Login = lazy(() => import('./pages/Login'));
 const SignUp = lazy(() => import('./pages/SignUp'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
 
-function withSuspense(element: ReactNode) {
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+function withSuspense(element: ReactNode, title?: string) {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-500">Loading...</div>}>
-      {element}
-    </Suspense>
+    <ErrorBoundary fallbackTitle={title}>
+      <Suspense fallback={<div className="flex min-h-[400px] items-center justify-center text-slate-500 font-medium animate-pulse">Loading...</div>}>
+        {element}
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

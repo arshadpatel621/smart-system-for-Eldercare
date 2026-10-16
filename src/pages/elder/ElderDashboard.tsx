@@ -16,10 +16,11 @@ export default function ElderDashboard() {
   const medications = data?.medications || [];
   const medicationLogs = data?.medicationLogs || [];
 
-  const heartRate = latestVitals?.heartRate?.value ?? 72;
-  const spo2 = latestVitals?.spo2?.value ?? 98;
-  const sleepHours = latestVitals?.sleep?.value ?? 7.5;
-  const steps = latestVitals?.steps?.value ?? 3420;
+  const isDemo = Boolean(profile?.uid?.startsWith('guest-') || profile?.uid === 'guest-user');
+  const heartRate = latestVitals?.heartRate?.value ? `${latestVitals.heartRate.value}` : (isDemo ? '72' : '--');
+  const spo2 = latestVitals?.spo2?.value ? `${latestVitals.spo2.value}` : (isDemo ? '98' : '--');
+  const sleepHours = latestVitals?.sleep?.value ? `${latestVitals.sleep.value}` : (isDemo ? '7.5' : '--');
+  const steps = latestVitals?.steps?.value ? `${latestVitals.steps.value}` : (isDemo ? '3420' : '--');
 
   useEffect(() => {
     async function loadCaregivers() {
@@ -73,9 +74,21 @@ export default function ElderDashboard() {
       </div>
 
       {/* Prominent Elder ID Card */}
-      {profile?.elderId && (
+      {profile?.elderId ? (
         <ElderIdCard elderId={profile.elderId} />
-      )}
+      ) : profile?.role === 'elder' ? (
+        <div className="relative overflow-hidden rounded-3xl border border-blue-200 bg-blue-50/60 p-6 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-100 text-blue-600 font-bold animate-pulse">
+              <span className="material-symbols-outlined">badge</span>
+            </div>
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-blue-900">Your Shareable Elder ID</h3>
+              <p className="text-xs text-slate-500">Setting up your secure Shareable Elder ID...</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Today's Personal Health Summary */}
       <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 space-y-4">

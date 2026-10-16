@@ -5,7 +5,10 @@
  * Credentials are NEVER stored or handled on the frontend.
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:5000';
+const API_BASE =
+  (import.meta.env.VITE_CAMERA_API_URL as string | undefined) ??
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  'http://localhost:5000';
 
 // ─── Shared Types (mirroring server — no credentials) ─────────────────────────
 
@@ -232,6 +235,20 @@ export const detectCameraViaAgent = async (input: {
 
 export const testCameraConnection = (id: string) =>
   apiFetch<ProbeResult>(`/api/cameras/${id}/test`, { method: 'POST' });
+
+export const testAdHocConnection = (input: {
+  ipAddress: string;
+  brand?: CameraBrand;
+  username: string;
+  password?: string;
+  port?: number;
+  onvifPort?: number;
+  customRtspPath?: string;
+}) =>
+  apiFetch<ProbeResult>('/api/cameras/test', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 
 export const discoverCamerasOnLAN = async (): Promise<DiscoveredCamera[]> => {
   const agent = await checkAgentStatus();

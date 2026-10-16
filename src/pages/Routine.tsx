@@ -12,6 +12,13 @@ export default function Routine() {
     return <div className="text-slate-500">Loading routine...</div>;
   }
 
+  const today = new Date().toISOString().slice(0, 10);
+  const todayHydration = data.metrics
+    .filter((m) => m.type === 'hydration' && m.recordedAt.startsWith(today))
+    .reduce((sum, m) => sum + m.value, 0);
+  const targetHydration = 2.0;
+  const hydrationPercent = Math.min(100, Math.round((todayHydration / targetHydration) * 100));
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
@@ -126,10 +133,10 @@ export default function Routine() {
                 <span className="material-symbols-outlined text-blue-500 bg-blue-50 p-2 rounded-xl">water_drop</span>
                 <h2 className="text-xl font-bold text-slate-800">Hydration</h2>
               </div>
-              <span className="text-sm font-bold text-blue-600">1.25L / 2.0L</span>
+              <span className="text-sm font-bold text-blue-600">{todayHydration.toFixed(2)}L / {targetHydration.toFixed(1)}L ({hydrationPercent}%)</span>
             </div>
             <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden">
-               <div className="h-full bg-blue-400 w-[62%]"></div>
+               <div className="h-full bg-blue-400 transition-all duration-500" style={{ width: `${hydrationPercent}%` }}></div>
             </div>
             <div className="mt-6 flex gap-2">
               <button

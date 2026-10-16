@@ -22,6 +22,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useWatchManager } from '../hooks/useWatchManager';
 import { useEldercare } from '../context/EldercareContext';
 import { HEALTH_SOURCE_LABELS, type HealthSource, type Watch, type CreateWatchInput, type BLETestStep, type WatchTestResult } from '../types/watch';
@@ -697,17 +698,17 @@ function BLEScanTab({ onAddWithDevice }: { onAddWithDevice: (name: string, mac: 
 // ─── Main Page (mirrors CameraManagement export) ──────────────────────────────
 
 export default function WatchManagement() {
+  const { data } = useEldercare();
+  const residentId   = data?.profile?.id   ?? 'demo-resident';
+  const residentName = data?.profile?.fullName ?? 'Unknown Resident';
+
   const {
     watches, loading, error,
     testingId, testSteps, testResult,
     deletingId, refresh,
     addWatch, editWatch, removeWatch, runTest,
     clearError, clearTestResult,
-  } = useWatchManager();
-
-  const { data } = useEldercare();
-  const residentId   = data?.profile?.id   ?? 'demo-resident';
-  const residentName = data?.profile?.fullName ?? 'Unknown Resident';
+  } = useWatchManager(residentId);
 
   const [showModal,      setShowModal]      = useState(false);
   const [editTarget,     setEditTarget]     = useState<Watch | null>(null);
@@ -774,7 +775,7 @@ export default function WatchManagement() {
         <div>
           <h1 className="text-4xl font-bold text-slate-800">Smart Watch Management</h1>
           <p className="text-slate-500 mt-2 max-w-xl">
-            Register BLE smart watches for health monitoring. Use Scan Device to discover nearby
+            Register BLE smart watches for {residentName}. Use Scan Device to discover nearby
             watches. Test Connection verifies GATT services. For continuous monitoring, deploy
             the Android Companion App.
           </p>
@@ -796,6 +797,28 @@ export default function WatchManagement() {
           </button>
         </div>
       </header>
+
+      {/* Notice Banner: Hardware Deferred / Diagnostic Mode */}
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="material-symbols-outlined text-amber-600 text-2xl shrink-0">info</span>
+          <div>
+            <span className="font-bold text-xs uppercase tracking-wider bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full mr-2">
+              Diagnostic &amp; Demo Mode
+            </span>
+            <span className="text-sm">
+              Continuous Bluetooth wearable streaming is deferred. Web Bluetooth diagnostics and simulated device testing are supported here.
+            </span>
+          </div>
+        </div>
+        <Link
+          to="/health"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white hover:bg-amber-700 transition-colors shrink-0 shadow-sm"
+        >
+          <span className="material-symbols-outlined text-sm">edit_note</span>
+          Record Health Vitals Manually
+        </Link>
+      </div>
 
       {/* Error Banner */}
       {error && (

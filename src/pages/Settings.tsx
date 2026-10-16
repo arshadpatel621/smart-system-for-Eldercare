@@ -1,12 +1,44 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useEldercare } from '../context/EldercareContext';
 
 export default function Settings() {
-  const { profile } = useAuth();
+  const { profile, logout, resetPassword } = useAuth();
   const { enableBrowserNotifications } = useEldercare();
+  const navigate = useNavigate();
   const [status, setStatus] = useState('');
   const [activeTab, setActiveTab] = useState<'profile' | 'preferences' | 'security'>('profile');
+  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  const handleSendReset = async () => {
+    if (!profile?.email) {
+      setSecurityError('No email associated with this account.');
+      return;
+    }
+    setSendingReset(true);
+    setSecurityError(null);
+    setSecurityMessage(null);
+    try {
+      await resetPassword(profile.email);
+      setSecurityMessage(`Password reset link sent to ${profile.email}. Check your inbox.`);
+    } catch (err: any) {
+      setSecurityError(err.message || 'Failed to send password reset email.');
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (err: any) {
+      setSecurityError(err.message || 'Failed to sign out.');
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -107,19 +139,38 @@ export default function Settings() {
           {activeTab === 'security' && (
             <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm space-y-6">
               <h2 className="text-2xl font-bold text-slate-800 mb-6">Security Settings</h2>
+
+              {securityMessage && (
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm font-medium text-emerald-800">
+                  {securityMessage}
+                </div>
+              )}
+
+              {securityError && (
+                <div className="rounded-xl bg-rose-50 border border-rose-200 p-4 text-sm font-medium text-rose-800">
+                  {securityError}
+                </div>
+              )}
               
               <div>
                 <h3 className="font-bold text-slate-800 mb-2">Change Password</h3>
-                <p className="text-sm text-slate-500 mb-4">We'll send a password reset link to your email.</p>
-                <button className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-                  Send Reset Link
+                <p className="text-sm text-slate-500 mb-4">We'll send an official Firebase password reset link to your email ({profile?.email || 'unregistered'}).</p>
+                <button
+                  onClick={handleSendReset}
+                  disabled={sendingReset}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                >
+                  {sendingReset ? 'Sending...' : 'Send Reset Link'}
                 </button>
               </div>
 
               <div className="pt-6 border-t border-slate-100">
                 <h3 className="font-bold text-rose-600 mb-2">Sign Out</h3>
                 <p className="text-sm text-slate-500 mb-4">Sign out of your account on this device.</p>
-                <button className="rounded-xl bg-rose-100 text-rose-700 px-4 py-2 font-bold hover:bg-rose-200 transition-colors">
+                <button
+                  onClick={handleSignOut}
+                  className="rounded-xl bg-rose-100 text-rose-700 px-4 py-2 font-bold hover:bg-rose-200 transition-colors"
+                >
                   Sign Out
                 </button>
               </div>

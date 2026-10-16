@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -98,19 +99,40 @@ function writeCachedProfile(profile: AppUserProfile) {
 }
 
 export async function getUserProfile(uid: string) {
-  const cached = readCachedProfile(uid);
+  let cached = readCachedProfile(uid);
 
   if (!db) {
+    if (cached && cached.role === 'elder' && (!cached.elderId || cached.elderId === 'demo-resident' || !cached.elderId.startsWith('ELD-'))) {
+      cached = { ...cached, elderId: generateElderId() };
+      writeCachedProfile(cached);
+    }
     return cached;
   }
 
   try {
     const snapshot = await getDoc(userRef(uid));
     if (!snapshot.exists()) {
+      if (cached && cached.role === 'elder' && (!cached.elderId || cached.elderId === 'demo-resident' || !cached.elderId.startsWith('ELD-'))) {
+        cached = { ...cached, elderId: generateElderId() };
+        writeCachedProfile(cached);
+      }
       return cached;
     }
 
-    const profile = snapshot.data() as AppUserProfile;
+    let profile = snapshot.data() as AppUserProfile;
+
+    // Auto-heal: If an elder user doesn't have a valid permanent elderId yet, generate, reserve, and persist it
+    if (profile.role === 'elder' && (!profile.elderId || profile.elderId === 'demo-resident' || !profile.elderId.startsWith('ELD-'))) {
+      try {
+        const newElderId = await generateUniqueElderId();
+        profile = { ...profile, elderId: newElderId };
+        profile = await reserveElderIdAtomic(profile);
+        await ensureEldercareRecord(newElderId, profile.fullName);
+      } catch (err) {
+        console.warn('Could not auto-reserve elderId in Firestore:', err);
+      }
+    }
+
     writeCachedProfile(profile);
     return profile;
   } catch (error) {
@@ -338,6 +360,17 @@ export async function signOutUser() {
   }
 
   await signOut(auth);
+}
+
+export async function sendPasswordReset(email: string) {
+  if (!auth) {
+    throw new Error('Firebase Auth is not available.');
+  }
+  const cleanEmail = email.trim();
+  if (!cleanEmail) {
+    throw new Error('Please enter a valid email address.');
+  }
+  await sendPasswordResetEmail(auth, cleanEmail);
 }
 
 export { formatFirebaseError };

@@ -7,6 +7,7 @@
 
 import { Request, Response } from 'express';
 import { CameraService } from './camera.service';
+import { probeCamera } from './camera.probe';
 import type { CreateCameraDto, UpdateCameraDto, PTZDirection } from './camera.types';
 
 const VALID_BRANDS = ['cpplus', 'dahua', 'hikvision', 'tplink_tapo', 'ezviz', 'onvif', 'rtsp'];
@@ -145,6 +146,29 @@ export class CameraController {
   testConnection = async (req: Request, res: Response) => {
     try {
       const result = await this.service.testConnection(req.params.id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  };
+
+  /** POST /api/cameras/test — run connection probe before saving */
+  testAdHocConnection = async (req: Request, res: Response) => {
+    const { ipAddress, brand, port, onvifPort, username, password, customRtspPath } = req.body;
+    if (!ipAddress?.trim()) {
+      res.status(400).json({ error: 'IP address is required' });
+      return;
+    }
+    try {
+      const result = await probeCamera(
+        ipAddress.trim(),
+        brand || 'cpplus',
+        port ? Number(port) : 554,
+        onvifPort ? Number(onvifPort) : 8899,
+        username?.trim() || 'admin',
+        password || '',
+        customRtspPath?.trim() || undefined
+      );
       res.json(result);
     } catch (err: any) {
       res.status(400).json({ error: err.message });

@@ -10,12 +10,35 @@ import { BRAND_LABELS as CAMERA_BRANDS } from '../services/camera';
 import { useEldercare } from '../context/EldercareContext';
 
 export default function DeviceManagement() {
-  const { devices, loading: devicesLoading, removeDevice, connectDevice, disconnectDevice, addDevice } = useDeviceManager();
-  const { cameras, loading: camerasLoading, removeCamera } = useCameraManager();
-  const { watches, loading: watchesLoading, removeWatch } = useWatchManager();
-  
-  const { data } = useEldercare();
-  const residentName = data?.profile?.fullName ?? 'Unknown Resident';
+  const { data, activeElderId } = useEldercare();
+  const residentId = activeElderId || data?.profile?.id || 'demo-resident';
+  const residentName = data?.profile?.fullName ?? 'Resident';
+
+  const {
+    devices,
+    loading: devicesLoading,
+    error: devicesError,
+    refresh: refreshDevices,
+    removeDevice,
+    connectDevice,
+    disconnectDevice,
+    addDevice,
+  } = useDeviceManager(residentId);
+
+  const {
+    cameras,
+    loading: camerasLoading,
+    error: camerasError,
+    removeCamera,
+  } = useCameraManager();
+
+  const {
+    watches,
+    loading: watchesLoading,
+    error: watchesError,
+    refresh: refreshWatches,
+    removeWatch,
+  } = useWatchManager(residentId);
 
   const [activeTab, setActiveTab] = useState<'devices' | 'cameras' | 'watches'>('devices');
   const [showAddWizard, setShowAddWizard] = useState(false);
@@ -31,34 +54,39 @@ export default function DeviceManagement() {
 
   const loading = devicesLoading || camerasLoading || watchesLoading;
 
-  // Normalized devices for the All Devices table
+  // Normalized devices for the All Devices table — fully guarded against undefined attributes
   const allDevices = [
-     ...devices.map(d => ({
-        id: d.id,
-        name: d.model,
-        brand: d.brand,
-        category: d.category.replace('_', ' '),
-        status: d.status,
-        battery: d.battery,
-        icon: d.category === 'wearable' ? 'watch' : d.category === 'medical_device' ? 'monitor_heart' : 'sensors',
-        type: 'device' as const,
-        raw: d
-     })),
-     ...watches.map(w => ({
+     ...(devices || []).map(d => {
+        const rawCategory = d.category || (d as any).source || 'sensor';
+        const categoryStr = typeof rawCategory === 'string' ? rawCategory.replace('_', ' ') : 'sensor';
+        const rawStatus = d.status || ((d as any).connected ? 'connected' : 'disconnected');
+        return {
+           id: d.id,
+           name: d.model || (d as any).name || 'Connected Device',
+           brand: d.brand || (d as any).notes || 'Generic',
+           category: categoryStr,
+           status: rawStatus,
+           battery: typeof d.battery === 'number' ? d.battery : (d as any).batteryLevel,
+           icon: d.category === 'wearable' ? 'watch' : d.category === 'medical_device' ? 'monitor_heart' : 'sensors',
+           type: 'device' as const,
+           raw: d
+        };
+     }),
+     ...(watches || []).map(w => ({
         id: w.id,
-        name: w.watchName,
-        brand: w.bluetoothName,
+        name: w.watchName || 'Smart Watch',
+        brand: w.bluetoothName || (w as any).brand || 'Bluetooth BLE',
         category: 'smart watch',
-        status: w.connectionStatus,
+        status: w.connectionStatus || 'disconnected',
         battery: w.battery,
         icon: 'watch',
         type: 'watch' as const,
         raw: w
      })),
-     ...cameras.map(c => ({
+     ...(cameras || []).map(c => ({
         id: c.id,
-        name: c.name,
-        brand: CAMERA_BRANDS[c.brand] || c.brand,
+        name: c.name || 'IP Camera',
+        brand: (c.brand && CAMERA_BRANDS[c.brand]) || c.brand || 'Generic Camera',
         category: 'camera',
         status: c.healthStatus === 'healthy' ? 'connected' : c.healthStatus === 'offline' ? 'disconnected' : 'degraded',
         battery: undefined,
@@ -70,8 +98,10 @@ export default function DeviceManagement() {
 
   const connectedCount = allDevices.filter(d => d.status === 'connected' || d.status === 'healthy').length;
   const offlineCount = allDevices.length - connectedCount;
-  const camerasCount = cameras.length;
-  const watchesCount = watches.length;
+  const camerasCount = (cameras || []).length;
+  const watchesCount = (watches || []).length;
+
+  const activeError = devicesError || watchesError || camerasError;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -88,6 +118,25 @@ export default function DeviceManagement() {
           Add Device
         </button>
       </header>
+
+      {/* Non-intrusive status notice if service fallback occurs */}
+      {activeError && (
+        <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-xs font-medium text-amber-900 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-base text-amber-600">warning</span>
+            Service notice: {activeError}. Operating in local cache mode.
+          </span>
+          <button
+            onClick={() => {
+              void refreshDevices();
+              void refreshWatches();
+            }}
+            className="font-bold underline text-amber-950 hover:text-amber-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -170,10 +219,18 @@ export default function DeviceManagement() {
                                  </div>
                               </td>
                               <td className="px-6 py-4">
-                                 <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${device.status === 'connected' ? 'bg-emerald-50 text-emerald-700' : device.status === 'degraded' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${device.status === 'connected' ? 'bg-emerald-500' : device.status === 'degraded' ? 'bg-amber-500' : 'bg-rose-500'}`}></span>
-                                    {device.status.charAt(0).toUpperCase() + device.status.slice(1)}
-                                 </div>
+                                 {(() => {
+                                   const statusStr = (device.status || 'disconnected').toString();
+                                   const isConn = statusStr === 'connected' || statusStr === 'healthy' || statusStr === 'optimal';
+                                   const isDegraded = statusStr === 'degraded' || statusStr === 'warning' || statusStr === 'attention';
+                                   const formatted = statusStr.charAt(0).toUpperCase() + statusStr.slice(1);
+                                   return (
+                                     <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${isConn ? 'bg-emerald-50 text-emerald-700' : isDegraded ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                                       <span className={`w-1.5 h-1.5 rounded-full ${isConn ? 'bg-emerald-500' : isDegraded ? 'bg-amber-500' : 'bg-rose-500'}`}></span>
+                                       {formatted}
+                                     </div>
+                                   );
+                                 })()}
                               </td>
                               <td className="px-6 py-4">
                                  <div className="flex items-center gap-1 text-slate-600">
@@ -283,8 +340,8 @@ function DeviceDetailsDrawer({ device, onClose, residentName }: { device: Device
 
                <div className="bg-slate-50 rounded-2xl p-5 space-y-4 border border-slate-100">
                   <DetailRow label="ID" value={device.id} copyable />
-                  <DetailRow label="Category" value={device.category.replace('_', ' ')} capitalize />
-                  <DetailRow label="Connection" value={device.connectionType} uppercase />
+                  <DetailRow label="Category" value={(device.category || 'device').toString().replace('_', ' ')} capitalize />
+                  <DetailRow label="Connection" value={device.connectionType || 'bluetooth'} uppercase />
                   <DetailRow label="Assigned To" value={residentName} />
                   
                   {device.macAddress && <DetailRow label="MAC Address" value={device.macAddress} monospace />}
@@ -298,12 +355,12 @@ function DeviceDetailsDrawer({ device, onClose, residentName }: { device: Device
                <div>
                   <h4 className="text-sm font-bold text-slate-800 mb-3 uppercase tracking-wider">Supported Metrics</h4>
                   <div className="flex flex-wrap gap-2">
-                     {device.supportedMetrics.length === 0 ? (
+                     {(device.supportedMetrics || []).length === 0 ? (
                         <span className="text-sm text-slate-400 italic">No metrics exported</span>
                      ) : (
-                        device.supportedMetrics.map(m => (
-                           <span key={m} className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold capitalize">
-                              {m.replace('_', ' ')}
+                        (device.supportedMetrics || []).map(m => (
+                           <span key={String(m)} className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold capitalize">
+                              {typeof m === 'string' ? m.replace('_', ' ') : String(m)}
                            </span>
                         ))
                      )}

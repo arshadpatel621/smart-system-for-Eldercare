@@ -6,7 +6,7 @@ import type { AppUserProfile } from '../../types/auth';
 
 export default function CaregiverRoutine() {
   const { profile } = useAuth();
-  const { data } = useEldercare();
+  const { data, setActiveElderId } = useEldercare();
   const [linkedElders, setLinkedElders] = useState<AppUserProfile[]>([]);
   const [selectedElderId, setSelectedElderId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,9 @@ export default function CaregiverRoutine() {
           const elders = await getLinkedEldersForCaregiver(profile);
           setLinkedElders(elders);
           if (elders.length > 0) {
-            setSelectedElderId(elders[0].elderId || '');
+            const firstId = elders[0].elderId || '';
+            setSelectedElderId(firstId);
+            setActiveElderId(firstId);
           }
         } catch (err) {
           console.error('Failed to load linked elders:', err);
@@ -30,7 +32,7 @@ export default function CaregiverRoutine() {
       }
     }
     void loadElders();
-  }, [profile]);
+  }, [profile, setActiveElderId]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -48,7 +50,10 @@ export default function CaregiverRoutine() {
           <span className="text-xs font-bold text-slate-500 pl-2">Select Elder:</span>
           <select
             value={selectedElderId}
-            onChange={(e) => setSelectedElderId(e.target.value)}
+            onChange={(e) => {
+              setSelectedElderId(e.target.value);
+              setActiveElderId(e.target.value);
+            }}
             className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-900 focus:border-blue-500 focus:outline-none"
           >
             {linkedElders.map((e) => (

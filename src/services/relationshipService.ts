@@ -18,7 +18,7 @@ const LOCAL_RELATIONSHIPS_KEY = 'eldercare-relationships-demo';
 
 export function validateElderIdFormat(rawId: string): boolean {
   const trimmed = rawId.trim().toUpperCase();
-  return /^ELD-[A-Z0-9]{6}$/.test(trimmed);
+  return /^ELD-[A-Z0-9]{4,10}$/i.test(trimmed);
 }
 
 function readLocalRelationships(): Relationship[] {
@@ -70,23 +70,74 @@ export async function findElderByElderId(elderId: string): Promise<AppUserProfil
     return null;
   }
 
-  const q = query(
-    collection(db, 'users'),
-    where('role', '==', 'elder'),
-    where('elderId', '==', normalizedId)
-  );
-
-  const snapshot = await getDocs(q);
-  if (snapshot.empty) {
-    return null;
+  // 1. Primary Firestore query: users where role == 'elder' AND elderId == normalizedId
+  try {
+    const q = query(
+      collection(db, 'users'),
+      where('role', '==', 'elder'),
+      where('elderId', '==', normalizedId)
+    );
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const docData = snapshot.docs[0].data() as AppUserProfile;
+      if (docData.status !== 'disabled' && docData.status !== 'inactive') {
+        return docData;
+      }
+    }
+  } catch (err) {
+    console.warn('Query by role and elderId failed:', err);
   }
 
-  const docData = snapshot.docs[0].data() as AppUserProfile;
-  if (docData.status === 'disabled' || docData.status === 'inactive') {
-    return null;
+  // 2. Fallback query: users where elderId == normalizedId (in case role wasn't indexed)
+  try {
+    const q2 = query(
+      collection(db, 'users'),
+      where('elderId', '==', normalizedId)
+    );
+    const snapshot2 = await getDocs(q2);
+    if (!snapshot2.empty) {
+      const docData = snapshot2.docs[0].data() as AppUserProfile;
+      if (docData.status !== 'disabled' && docData.status !== 'inactive') {
+        return docData;
+      }
+    }
+  } catch (err) {
+    console.warn('Query by elderId alone failed:', err);
   }
 
-  return docData;
+  // 3. Fallback: Lookup in /elderIds/{normalizedId} reservation document
+  try {
+    const resSnap = await getDoc(doc(db, 'elderIds', normalizedId));
+    if (resSnap.exists()) {
+      const reservation = resSnap.data();
+      if (reservation?.elderUid) {
+        const userSnap = await getDoc(doc(db, 'users', reservation.elderUid));
+        if (userSnap.exists()) {
+          const docData = userSnap.data() as AppUserProfile;
+          if (docData.status !== 'disabled' && docData.status !== 'inactive') {
+            return docData;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Direct lookup in elderIds collection failed:', err);
+  }
+
+  // 4. Local storage fallback if offline or cached
+  const cachedKeys = Object.keys(localStorage).filter((k) => k.startsWith('eldercare-user-profile:'));
+  for (const key of cachedKeys) {
+    try {
+      const user = JSON.parse(localStorage.getItem(key) || '{}') as AppUserProfile;
+      if (user.role === 'elder' && user.elderId?.toUpperCase() === normalizedId) {
+        return user;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
 }
 
 export async function connectCaregiverToElder(
@@ -211,14 +262,28 @@ export async function getLinkedEldersForCaregiver(
     return elders;
   }
 
-  const q = query(
-    collection(db, 'users'),
-    where('role', '==', 'elder'),
-    where('elderId', 'in', linkedIds.slice(0, 10)) // Firestore 'in' limit is 10
-  );
+  try {
+    const q = query(
+      collection(db, 'users'),
+      where('role', '==', 'elder'),
+      where('elderId', 'in', linkedIds.slice(0, 10)) // Firestore 'in' limit is 10
+    );
 
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => d.data() as AppUserProfile);
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      return snapshot.docs.map((d) => d.data() as AppUserProfile);
+    }
+  } catch (err) {
+    console.warn('Batch query for linked elders failed, resolving individually:', err);
+  }
+
+  // Fallback: resolve each linked elder individually
+  const elders: AppUserProfile[] = [];
+  for (const id of linkedIds) {
+    const elder = await findElderByElderId(id);
+    if (elder) elders.push(elder);
+  }
+  return elders;
 }
 
 export async function getLinkedCaregiversForElder(

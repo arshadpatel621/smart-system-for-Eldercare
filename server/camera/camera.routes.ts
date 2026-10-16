@@ -13,6 +13,7 @@ export function createCameraRouter(controller: CameraController): Router {
   router.get('/',           controller.listCameras);      // List all cameras
   router.get('/statuses',   controller.getAllStatuses);    // All live statuses
   router.get('/discover',   controller.discoverCameras);  // LAN ONVIF scan
+  router.post('/test',      controller.testAdHocConnection); // Ad-hoc probe before saving
   router.post('/',          controller.createCamera);      // Add camera
 
   // ── Single-camera routes ──────────────────────────────────────────

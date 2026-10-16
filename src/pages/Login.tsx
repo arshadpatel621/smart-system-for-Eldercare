@@ -7,12 +7,36 @@ import type { UserRole } from '../types/auth';
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile } = useAuth();
+  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile, resetPassword } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [roleMismatchNotice, setRoleMismatchNotice] = useState<string | null>(null);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotStatus, setForgotStatus] = useState<string | null>(null);
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  const [resetSending, setResetSending] = useState(false);
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) {
+      setForgotError('Please enter your email address.');
+      return;
+    }
+    setResetSending(true);
+    setForgotStatus(null);
+    setForgotError(null);
+    try {
+      await resetPassword(forgotEmail.trim());
+      setForgotStatus(`A password reset link has been sent to ${forgotEmail.trim()}. Check your inbox.`);
+    } catch (err: any) {
+      setForgotError(err.message || 'Failed to send password reset link.');
+    } finally {
+      setResetSending(false);
+    }
+  };
 
   useEffect(() => {
     if (user && !profile) {
@@ -206,7 +230,21 @@ export default function Login() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Password</label>
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(email);
+                      setForgotStatus(null);
+                      setForgotError(null);
+                      setShowForgotModal(true);
+                    }}
+                    className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
                 <input
                   type="password"
                   placeholder="••••••••"
@@ -282,6 +320,72 @@ export default function Login() {
                 Create Account
               </Link>
             </p>
+          </div>
+        )}
+
+        {/* Forgot Password Modal */}
+        {showForgotModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#0e1628] p-7 shadow-2xl space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-white">Reset Password</h3>
+                <button
+                  onClick={() => setShowForgotModal(false)}
+                  className="rounded-full p-1 text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <p className="text-sm text-slate-400">
+                Enter your registered email address and we'll send you an official Firebase link to reset your password.
+              </p>
+
+              {forgotStatus && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs font-semibold text-emerald-300">
+                  {forgotStatus}
+                </div>
+              )}
+
+              {forgotError && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs font-semibold text-rose-300">
+                  {forgotError}
+                </div>
+              )}
+
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 ml-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="name@example.com"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(false)}
+                    className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={resetSending}
+                    className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 transition-colors disabled:opacity-50"
+                  >
+                    {resetSending ? 'Sending Link...' : 'Send Reset Link'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

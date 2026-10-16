@@ -13,15 +13,15 @@ export interface CaregiverReportCardProps {
 
 export function CaregiverReportCard({
   status,
-  summary = 'Resident Anita Rao is stable today. Vital signs are within normal clinical thresholds.',
+  summary = 'Resident vitals are within normal clinical thresholds.',
   alerts = [],
   actionItems = [
-    'Ensure Lisinopril is taken at 8 PM',
-    'Encourage a short walk in the evening',
-    'Log fluid intake',
+    'Take scheduled daily medications on time',
+    'Encourage light hydration and movement',
+    'Log daily vitals',
   ],
-  observationNotes = 'Anita has been active today (4,120 steps). She reports good energy levels and did not experience any dizziness during morning activities. Soft meals are prepared for dinner.',
-  medicationCompliance = '95%',
+  observationNotes = 'Resident activity and vitals are logged. No adverse observations recorded.',
+  medicationCompliance = '100%',
   readyToSend = true,
   onSend,
 }: CaregiverReportCardProps) {

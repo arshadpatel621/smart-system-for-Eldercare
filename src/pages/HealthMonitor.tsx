@@ -18,7 +18,7 @@ const metricUnitMap: Record<MetricType, string> = {
 
 export default function HealthMonitor() {
   const { data, latestVitals, createMetric } = useEldercare();
-  const { watches } = useWatchManager();
+  const { watches } = useWatchManager(data?.profile?.id);
   const navigate = useNavigate();
   const [form, setForm] = useState({
     type: 'blood_pressure' as MetricType,
@@ -92,7 +92,7 @@ export default function HealthMonitor() {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-800">No smart watch connected</h3>
-              <p className="text-xs text-slate-500">Go to Device Management to add or manage smart watches.</p>
+              <p className="text-xs text-slate-500">Smartwatch streaming is deferred. You can record vitals manually below.</p>
             </div>
           </div>
           <button onClick={() => navigate('/devices')} className="bg-indigo-600 text-white text-sm font-bold px-4 py-2 rounded-xl hover:bg-indigo-700 shadow-sm transition-colors">
@@ -103,52 +103,46 @@ export default function HealthMonitor() {
 
         <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {[
-            { id: 'heart_rate',    label: 'Heart Rate',      value: latestVitals.heartRate?.value,    unit: 'bpm',   icon: 'favorite',             color: 'text-rose-500'   },
-            { id: 'spo2',          label: 'SpO₂',            value: latestVitals.spo2?.value,          unit: '%',     icon: 'bloodtype',            color: 'text-blue-500'   },
+            { id: 'heart_rate',    label: 'Heart Rate',      value: latestVitals.heartRate?.value,    unit: 'bpm',   icon: 'favorite',             color: 'text-rose-500', source: latestVitals.heartRate?.source },
+            { id: 'spo2',          label: 'SpO₂',            value: latestVitals.spo2?.value,          unit: '%',     icon: 'bloodtype',            color: 'text-blue-500', source: latestVitals.spo2?.source },
             { id: 'blood_pressure',label: 'Blood Pressure',  value: latestVitals.bloodPressure
               ? `${latestVitals.bloodPressure.value}/${latestVitals.bloodPressure.secondaryValue}`
-              : undefined,                                                                               unit: 'mmHg',  icon: 'monitor_heart',        color: 'text-indigo-500' },
-            { id: 'temperature',   label: 'Temperature',     value: undefined,                         unit: '°F',    icon: 'device_thermostat',    color: 'text-amber-500'  },
-            { id: 'sleep_hours',   label: 'Sleep',           value: latestVitals.sleep?.value,         unit: 'h',     icon: 'dark_mode',            color: 'text-purple-500' },
-            { id: 'steps',         label: 'Steps',           value: latestVitals.steps?.value,         unit: 'steps', icon: 'directions_walk',      color: 'text-emerald-500'},
-            { id: 'calories',      label: 'Calories',        value: latestVitals.calories?.value,      unit: 'kcal',  icon: 'local_fire_department',color: 'text-orange-500' },
-          ].map(({ id, label, value, unit, icon, color }) => {
-            const hasDevice   = activeWearable !== null;
+              : undefined,                                                                               unit: 'mmHg',  icon: 'monitor_heart',        color: 'text-indigo-500', source: latestVitals.bloodPressure?.source },
+            { id: 'temperature',   label: 'Temperature',     value: undefined,                         unit: '°F',    icon: 'device_thermostat',    color: 'text-amber-500', source: undefined },
+            { id: 'sleep_hours',   label: 'Sleep',           value: latestVitals.sleep?.value,         unit: 'h',     icon: 'dark_mode',            color: 'text-purple-500', source: latestVitals.sleep?.source },
+            { id: 'steps',         label: 'Steps',           value: latestVitals.steps?.value,         unit: 'steps', icon: 'directions_walk',      color: 'text-emerald-500', source: latestVitals.steps?.source },
+            { id: 'calories',      label: 'Calories',        value: latestVitals.calories?.value,      unit: 'kcal',  icon: 'local_fire_department',color: 'text-orange-500', source: latestVitals.calories?.source },
+          ].map(({ id, label, value, unit, icon, color, source }) => {
             const hasRealData = value !== undefined && value !== null;
 
             return (
               <div
                 key={id}
                 className={`rounded-3xl border ${
-                  hasDevice ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-70'
+                  hasRealData ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-70'
                 } p-6 shadow-sm flex flex-col justify-between`}
               >
                 <div className="flex items-center justify-between">
-                  <div className={`rounded-2xl bg-slate-50/50 p-3 ${hasDevice ? color : 'text-slate-400'}`}>
+                  <div className={`rounded-2xl bg-slate-50/50 p-3 ${hasRealData ? color : 'text-slate-400'}`}>
                     <span className="material-symbols-outlined text-2xl">{icon}</span>
                   </div>
-                  {hasDevice && hasRealData && (
-                    <span className="text-xs font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-md border border-slate-100">TODAY</span>
+                  {hasRealData && (
+                    <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200 uppercase">
+                      {source === 'watch' ? '⌚ Wearable' : '✍️ Manual'}
+                    </span>
                   )}
                 </div>
                 <div className="mt-4">
                   <div className="text-sm font-bold uppercase tracking-widest text-slate-400">{label}</div>
-                  {hasDevice ? (
-                    hasRealData ? (
-                      <div className="mt-1 flex items-baseline gap-1">
-                        <span className="text-4xl font-black text-slate-800">{value}</span>
-                        <span className="text-sm font-bold text-slate-400">{unit}</span>
-                      </div>
-                    ) : (
-                      <div className="mt-2">
-                        <span className="text-3xl font-black text-slate-300">--</span>
-                        <p className="text-xs text-slate-400 mt-1">Waiting for device</p>
-                      </div>
-                    )
+                  {hasRealData ? (
+                    <div className="mt-1 flex items-baseline gap-1">
+                      <span className="text-4xl font-black text-slate-800">{value}</span>
+                      <span className="text-sm font-bold text-slate-400">{unit}</span>
+                    </div>
                   ) : (
                     <div className="mt-2">
                       <span className="text-3xl font-black text-slate-300">--</span>
-                      <p className="text-xs text-slate-400 mt-1">No watch connected</p>
+                      <p className="text-xs text-slate-400 mt-1">No data recorded</p>
                     </div>
                   )}
                 </div>
@@ -157,29 +151,49 @@ export default function HealthMonitor() {
           })}
         </section>
 
-        {/* Historical Charts Placeholder */}
+        {/* Real Health Trends Timeline */}
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-slate-800">Health Trends</h2>
-            <select className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-600">
-              <option>Last 7 Days</option>
-              <option>Last 30 Days</option>
-              <option>This Year</option>
-            </select>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Health Trends</h2>
+              <p className="text-xs text-slate-400 mt-0.5">Recorded vitals timeline</p>
+            </div>
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
+              {data.metrics.length} Recorded Readings
+            </span>
           </div>
-          <div className="h-64 w-full bg-slate-50 rounded-2xl border border-slate-100 flex items-end px-4 pt-8 pb-4 gap-2 relative">
-             <div className="absolute top-4 left-4 flex gap-4 text-xs font-bold text-slate-400">
-               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-rose-400"></div>Heart Rate</div>
-               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-400"></div>SpO₂</div>
-             </div>
-             {/* Mock Chart Bars */}
-             {[60, 45, 80, 50, 90, 70, 65, 55, 75, 40, 85, 60].map((h, i) => (
-                <div key={i} className="flex-1 flex gap-1 items-end h-full">
-                   <div className="w-full bg-rose-400/80 rounded-t-sm transition-all hover:bg-rose-500" style={{ height: `${h}%` }}></div>
-                   <div className="w-full bg-blue-400/80 rounded-t-sm transition-all hover:bg-blue-500" style={{ height: `${(h + 20) > 100 ? 95 : h + 20}%` }}></div>
-                </div>
-             ))}
-          </div>
+          {data.metrics.length === 0 ? (
+            <div className="h-44 w-full bg-slate-50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 text-sm">
+              <span className="material-symbols-outlined text-3xl mb-1 text-slate-300">show_chart</span>
+              No vital trends recorded yet. Use the manual entry form below to log your first reading.
+            </div>
+          ) : (
+            <div className="h-64 w-full bg-slate-50 rounded-2xl border border-slate-100 flex items-end px-4 pt-10 pb-4 gap-2 relative overflow-x-auto">
+               <div className="absolute top-4 left-4 flex gap-4 text-xs font-bold text-slate-400">
+                 <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-rose-400"></div>Heart Rate (bpm)</div>
+                 <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-blue-400"></div>SpO₂ (%)</div>
+               </div>
+               {data.metrics.slice(0, 16).reverse().map((m, i) => {
+                  const hrValue = m.type === 'heart_rate' ? m.value : null;
+                  const spo2Value = m.type === 'spo2' ? m.value : null;
+                  const heightHr = hrValue ? Math.min(100, Math.max(15, (hrValue / 160) * 100)) : 0;
+                  const heightSpo2 = spo2Value ? Math.min(100, Math.max(15, (spo2Value / 100) * 100)) : 0;
+                  return (
+                    <div key={m.id || i} className="flex-1 min-w-[28px] flex gap-1 items-end h-full group relative" title={`${m.type}: ${m.value} ${m.unit} (${new Date(m.recordedAt).toLocaleTimeString()})`}>
+                       {heightHr > 0 && (
+                         <div className="w-full bg-rose-400/90 rounded-t-sm transition-all hover:bg-rose-500" style={{ height: `${heightHr}%` }} />
+                       )}
+                       {heightSpo2 > 0 && (
+                         <div className="w-full bg-blue-400/90 rounded-t-sm transition-all hover:bg-blue-500" style={{ height: `${heightSpo2}%` }} />
+                       )}
+                       {heightHr === 0 && heightSpo2 === 0 && (
+                         <div className="w-full bg-indigo-300/80 rounded-t-sm" style={{ height: `${Math.min(100, Math.max(15, (m.value / 150) * 100))}%` }} />
+                       )}
+                    </div>
+                  );
+               })}
+            </div>
+          )}
         </section>
 
         <form

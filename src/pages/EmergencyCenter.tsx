@@ -50,10 +50,8 @@ export default function EmergencyCenter() {
     setTimeout(() => setSosBanner(null), 3000);
   };
 
-  const emergencyContacts = [
-    { name: 'Dr. Sarah Wilson', role: 'Primary Physician', phone: '555-0100' },
-    { name: 'Michael Smith', role: 'Family (Son)', phone: '555-0102' },
-  ];
+  const emergencyContacts = (data?.contacts || []).filter(c => c.notifyOnEmergency);
+  const displayContacts = emergencyContacts.length > 0 ? emergencyContacts : (data?.contacts || []);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -123,25 +121,33 @@ export default function EmergencyCenter() {
               <span className="material-symbols-outlined text-blue-600">contact_phone</span>
               Primary Emergency Contacts
             </h3>
-            <div className="space-y-3">
-              {emergencyContacts.map((contact) => (
-                <div
-                  key={contact.name}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100"
-                >
-                  <div>
-                    <div className="font-bold text-slate-700">{contact.name}</div>
-                    <div className="text-xs text-slate-500">{contact.role}</div>
-                  </div>
-                  <a
-                    href={`tel:${contact.phone}`}
-                    className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 transition-colors"
+            {displayContacts.length === 0 ? (
+              <div className="text-center py-6 text-sm text-slate-400">
+                <span className="material-symbols-outlined text-3xl text-slate-300 block mb-1">contacts</span>
+                No emergency contacts designated yet. Add contacts in the Care Team section.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {displayContacts.map((contact) => (
+                  <div
+                    key={contact.id || contact.name}
+                    className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100"
                   >
-                    <span className="material-symbols-outlined text-sm">call</span>
-                  </a>
-                </div>
-              ))}
-            </div>
+                    <div>
+                      <div className="font-bold text-slate-700">{contact.name}</div>
+                      <div className="text-xs text-slate-500">{contact.relation}</div>
+                    </div>
+                    <a
+                      href={`tel:${contact.phone}`}
+                      className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 transition-colors"
+                      title={`Call ${contact.name}`}
+                    >
+                      <span className="material-symbols-outlined text-sm">call</span>
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

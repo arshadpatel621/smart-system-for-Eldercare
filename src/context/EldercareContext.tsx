@@ -25,6 +25,7 @@ import {
   saveDevice,
   saveMedication,
   saveProfile,
+  sanitizeRealAccountData,
 } from '../lib/eldercareStore';
 import { buildRecommendations, evaluateAlerts, getLatestVitals } from '../lib/alertRules';
 import type {
@@ -41,6 +42,8 @@ import type {
 
 interface EldercareContextValue {
   data: EldercareData | null;
+  activeElderId: string | null;
+  setActiveElderId: (id: string | null) => void;
   latestVitals: ReturnType<typeof getLatestVitals> | null;
   derivedAlerts: AlertRecord[];
   recommendations: ReturnType<typeof buildRecommendations>;
@@ -76,15 +79,24 @@ async function requestNotificationPermission() {
 }
 
 export function EldercareProvider({ children }: { children: ReactNode }) {
-  const { profile, loading: authLoading } = useAuth();
-  const activeElderId = profile?.elderId;
+  const { profile, loading: authLoading, user } = useAuth();
+  const [selectedElderId, setSelectedElderId] = useState<string | null>(null);
 
-  const [data, setData] = useState<EldercareData | null>(() => {
-    if (activeElderId) {
-      return loadLocalEldercareData(activeElderId);
-    }
-    return null;
-  });
+  const isDemoUser = Boolean(
+    profile?.uid?.startsWith('guest-') ||
+    profile?.uid === 'guest-user' ||
+    (!user && !profile)
+  );
+
+  // Default to profile elderId if no override selected
+  const activeElderId =
+    selectedElderId ||
+    profile?.elderId ||
+    (isDemoUser
+      ? 'demo-resident'
+      : (profile?.uid ? `ELD-${profile.uid.slice(0, 6).toUpperCase()}` : null));
+
+  const [data, setData] = useState<EldercareData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastNotificationId = useRef<string | null>(null);
@@ -102,12 +114,12 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     
     setError(null);
     try {
-      const result = await loadEldercareData(activeElderId);
+      const result = await loadEldercareData(activeElderId, profile?.fullName, isDemoUser);
       setData(result);
     } catch (loadError) {
       console.warn('Firebase data load failed, using local/cached data:', loadError);
       if (!data) {
-        setData(loadLocalEldercareData(activeElderId));
+        setData(loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
       }
     } finally {
       setLoading(false);
@@ -117,7 +129,7 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (authLoading) return;
     void refresh();
-  }, [authLoading, activeElderId]);
+  }, [authLoading, activeElderId, isDemoUser]);
 
   const latestVitals = data ? getLatestVitals(data) : null;
   const derivedAlerts = useMemo(() => {
@@ -157,7 +169,8 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await operation();
-      setData(result);
+      const sanitized = isDemoUser ? result : sanitizeRealAccountData(result, activeElderId, profile?.fullName);
+      setData(sanitized);
     } catch (persistError) {
       setError(formatFirebaseError(persistError));
     }
@@ -165,6 +178,8 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
 
   const value: EldercareContextValue = {
     data,
+    activeElderId,
+    setActiveElderId: (id: string | null) => setSelectedElderId(id),
     latestVitals,
     derivedAlerts,
     recommendations,
@@ -172,20 +187,20 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     error,
     storageMode,
     refresh,
-    updateProfile: async (profile) => persist(() => saveProfile(profile, activeElderId)),
-    createMetric: async (metric) => persist(() => addMetric(metric, activeElderId)),
-    createMedication: async (medication) => persist(() => saveMedication(medication, activeElderId)),
+    updateProfile: async (profile) => persist(() => saveProfile(profile, activeElderId!)),
+    createMetric: async (metric) => persist(() => addMetric(metric, activeElderId!)),
+    createMedication: async (medication) => persist(() => saveMedication(medication, activeElderId!)),
     takeMedication: async (medicationId, scheduledFor) =>
-      persist(() => markMedicationTaken(medicationId, scheduledFor, activeElderId)),
-    createContact: async (contact) => persist(() => addCareContact(contact, activeElderId)),
-    deleteContact: async (contactId) => persist(() => removeCareContact(contactId, activeElderId)),
-    createMedicalReport: async (report) => persist(() => saveMedicalReport(report, activeElderId)),
-    removeMedicalReport: async (reportId) => persist(() => removeMedicalReport(reportId, activeElderId)),
-    updateDevice: async (device) => persist(() => saveDevice(device, activeElderId)),
+      persist(() => markMedicationTaken(medicationId, scheduledFor, activeElderId!)),
+    createContact: async (contact) => persist(() => addCareContact(contact, activeElderId!)),
+    deleteContact: async (contactId) => persist(() => removeCareContact(contactId, activeElderId!)),
+    createMedicalReport: async (report) => persist(() => saveMedicalReport(report, activeElderId!)),
+    removeMedicalReport: async (reportId) => persist(() => removeMedicalReport(reportId, activeElderId!)),
+    updateDevice: async (device) => persist(() => saveDevice(device, activeElderId!)),
 
-    createSafetyEvent: async (event) => persist(() => addSafetyEvent(event, activeElderId)),
-    confirmAlert: async (alert) => persist(() => acknowledgeAlert(alert, activeElderId)),
-    importWatchData: async (source) => persist(() => importWearableSnapshot(source, activeElderId)),
+    createSafetyEvent: async (event) => persist(() => addSafetyEvent(event, activeElderId!)),
+    confirmAlert: async (alert) => persist(() => acknowledgeAlert(alert, activeElderId!)),
+    importWatchData: async (source) => persist(() => importWearableSnapshot(source, activeElderId!)),
     enableBrowserNotifications: requestNotificationPermission,
   };
 

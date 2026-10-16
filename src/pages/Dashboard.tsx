@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useEldercare } from '../context/EldercareContext';
 import { hasRoleAccess, roleAccess } from '../lib/access';
 import { useDeviceManager } from '../hooks/useDeviceManager';
+import { useCameraManager } from '../hooks/useCameraManager';
 
 function getNextMedication(data: NonNullable<ReturnType<typeof useEldercare>['data']>) {
   const today = new Date().toISOString().slice(0, 10);
@@ -32,6 +33,7 @@ export default function Dashboard() {
   const { role } = useAuth();
   const { data, latestVitals, derivedAlerts, recommendations, storageMode } = useEldercare();
   const { devices } = useDeviceManager();
+  const { cameras } = useCameraManager();
 
   if (!data || !latestVitals) {
     return <div className="text-slate-500">Loading dashboard...</div>;
@@ -49,8 +51,10 @@ export default function Dashboard() {
     { label: 'Emergency protocols', path: '/emergency', roles: roleAccess.all },
   ].filter((item) => hasRoleAccess(role, item.roles));
 
-  const onlineDevices = devices.filter(d => d.status === 'connected').length + 3; // +3 mock cameras
-  const offlineDevices = devices.filter(d => d.status === 'disconnected' || d.status === 'error').length + 0; // +0 mock cameras
+  const onlineCameras = cameras.filter(c => c.healthStatus === 'healthy').length;
+  const offlineCameras = cameras.filter(c => c.healthStatus === 'offline').length;
+  const onlineDevices = devices.filter(d => d.status === 'connected').length + onlineCameras;
+  const offlineDevices = devices.filter(d => d.status === 'disconnected' || d.status === 'error').length + offlineCameras;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">

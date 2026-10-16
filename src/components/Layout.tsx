@@ -145,7 +145,7 @@ export default function Layout() {
 
       <div className="flex flex-1 relative">
         {/* Desktop Navigation Drawer */}
-        <aside className="hidden md:flex flex-col w-64 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 space-y-1">
+        <aside className="hidden md:flex flex-col w-64 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 space-y-1 sticky top-[57px] h-[calc(100vh-57px)] overflow-y-auto shrink-0">
           <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Navigation
           </div>

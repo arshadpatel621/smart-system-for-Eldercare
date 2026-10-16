@@ -25,7 +25,8 @@ import type {
   ScannedBLEDevice, WatchTestResult, BLETestStep,
 } from '../types/watch';
 
-export function useWatchManager() {
+export function useWatchManager(residentIdParam?: string) {
+  const targetResidentId = residentIdParam || 'demo-resident';
   const [watches,   setWatches]   = useState<Watch[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState<string | null>(null);
@@ -41,26 +42,29 @@ export function useWatchManager() {
   // BLE scan state
   const [scanning,    setScanning]    = useState(false);
 
-  /** Loads all watches from server. */
+  /** Loads all watches from Firestore/local storage. */
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchWatches();
+      const list = await fetchWatches(targetResidentId);
       setWatches(list);
     } catch (err: any) {
       setError(err.message ?? 'Failed to load watches');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [targetResidentId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   /** Creates a new watch. */
   const addWatch = async (input: CreateWatchInput): Promise<boolean> => {
     try {
-      const created = await createWatch(input);
+      const created = await createWatch({
+        ...input,
+        residentId: input.residentId || targetResidentId,
+      });
       setWatches((prev) => [...prev, created]);
       return true;
     } catch (err: any) {
@@ -72,7 +76,7 @@ export function useWatchManager() {
   /** Updates an existing watch. */
   const editWatch = async (id: string, input: UpdateWatchInput): Promise<boolean> => {
     try {
-      const updated = await updateWatch(id, input);
+      const updated = await updateWatch(id, input, targetResidentId);
       setWatches((prev) => prev.map((w) => (w.id === id ? updated : w)));
       return true;
     } catch (err: any) {
@@ -85,7 +89,7 @@ export function useWatchManager() {
   const removeWatch = async (id: string): Promise<boolean> => {
     setDeletingId(id);
     try {
-      await deleteWatch(id);
+      await deleteWatch(id, targetResidentId);
       setWatches((prev) => prev.filter((w) => w.id !== id));
       return true;
     } catch (err: any) {
@@ -119,7 +123,7 @@ export function useWatchManager() {
   /**
    * Runs the step-by-step BLE connection test.
    * Mirrors runTest() in useCameraManager.
-   * After completion, POSTs the result to the server for persistence.
+   * After completion, saves the result to Firestore / local storage for persistence.
    */
   const runTest = async (watchId: string, targetName?: string): Promise<WatchTestResult | null> => {
     setTestingId(watchId);
@@ -136,10 +140,10 @@ export function useWatchManager() {
 
       // Persist the result and update local state with refreshed watch
       try {
-        const { watch: updated } = await postBLETestResult(watchId, result);
+        const { watch: updated } = await postBLETestResult(watchId, result, targetResidentId);
         setWatches((prev) => prev.map((w) => (w.id === watchId ? updated : w)));
       } catch {
-        // Non-fatal: BLE result stored locally even if server persistence fails
+        // Non-fatal: BLE result stored locally even if persistence fails
       }
 
       return result;

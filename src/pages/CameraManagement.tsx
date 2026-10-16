@@ -5,6 +5,7 @@ import {
   type CameraPublicRecord, type CameraBrand, type CameraLocation,
   type CreateCameraInput, type ProbeResult,
   discoverCamerasOnLAN, type DiscoveredCamera,
+  testAdHocConnection,
   detectCameraViaAgent, type AgentDetectResult, type DiagnosticStage
 } from '../services/camera';
 
@@ -149,17 +150,104 @@ function CameraFormModal({
     setTestError(null);
 
     try {
-      const res = await detectCameraViaAgent({
+      // 1. Probe directly via the running Express Camera Server
+      const probeRes = await testAdHocConnection({
         ipAddress: form.ipAddress,
+        brand: form.brand,
         username: form.username,
         password: form.password,
         port: form.port ?? 554,
-        onvifPort: form.onvifPort ?? 80,
+        onvifPort: form.onvifPort ?? (form.brand === 'cpplus' ? 8899 : 80),
         customRtspPath: form.customRtspPath ?? '',
       });
-      setDetectResult(res);
+
+      const openPorts = (probeRes.portsScanned || []).filter((p) => p.open).map((p) => p.port);
+      const isReachable = openPorts.length > 0;
+
+      const agentResult: AgentDetectResult = {
+        success: probeRes.success,
+        ip: form.ipAddress,
+        host_reachable: isReachable,
+        open_ports: openPorts,
+        onvif: probeRes.onvifAvailable,
+        rtsp: probeRes.rtspAvailable,
+        stage: probeRes.success
+          ? 'rtsp_test'
+          : probeRes.authError
+          ? 'onvif_authentication'
+          : isReachable
+          ? 'rtsp_detection'
+          : 'ip_reachability',
+        streamUri: probeRes.discoveredRtspPath,
+        manufacturer: probeRes.manufacturer,
+        model: probeRes.model,
+        firmware: probeRes.firmware,
+        message:
+          probeRes.errorMessage ||
+          (probeRes.success
+            ? 'Camera verified and streaming successfully!'
+            : 'Connection test completed with warnings.'),
+        stages: {
+          ip_reachability: {
+            status: isReachable ? 'success' : 'failed',
+            message: isReachable
+              ? `Host reachable on Wi-Fi (Open ports: ${openPorts.join(', ')})`
+              : 'Camera is not reachable at this IP address.',
+          },
+          onvif_detection: {
+            status: probeRes.onvifAvailable ? 'success' : 'failed',
+            message: probeRes.onvifAvailable
+              ? `ONVIF service responding (${probeRes.manufacturer || 'Camera'})`
+              : 'ONVIF port closed or disabled. Enable in Ezykam+ app.',
+          },
+          onvif_authentication: {
+            status: probeRes.authError
+              ? 'failed'
+              : probeRes.onvifAvailable || probeRes.success
+              ? 'success'
+              : 'not_run',
+            message: probeRes.authError
+              ? 'Authentication failed — check ONVIF password in camera app.'
+              : 'Authentication passed.',
+          },
+          media_profile: {
+            status: probeRes.discoveredRtspPath ? 'success' : 'skipped',
+            message: probeRes.discoveredRtspPath
+              ? `Stream path: ${probeRes.discoveredRtspPath}`
+              : 'No ONVIF media path resolved.',
+          },
+          rtsp_detection: {
+            status: openPorts.includes(554) || openPorts.includes(8554) ? 'success' : 'failed',
+            message:
+              openPorts.includes(554) || openPorts.includes(8554)
+                ? 'RTSP stream port 554 is open.'
+                : 'RTSP port 554 is closed. Ensure ONVIF is enabled in app.',
+          },
+          rtsp_test: {
+            status: probeRes.rtspAvailable ? 'success' : 'failed',
+            message: probeRes.rtspAvailable
+              ? `Live stream verified (${probeRes.resolution || '720p/1080p'}, ${probeRes.fps || 15} fps)`
+              : probeRes.errorMessage || 'RTSP handshake failed.',
+          },
+        },
+      };
+
+      setDetectResult(agentResult);
     } catch (err: any) {
-      setTestError(err.message ?? 'Local Camera Agent is not running on http://127.0.0.1:8000');
+      // Fallback to local python agent if configured
+      try {
+        const res = await detectCameraViaAgent({
+          ipAddress: form.ipAddress,
+          username: form.username,
+          password: form.password,
+          port: form.port ?? 554,
+          onvifPort: form.onvifPort ?? 80,
+          customRtspPath: form.customRtspPath ?? '',
+        });
+        setDetectResult(res);
+      } catch {
+        setTestError(err.message ?? 'Camera server request failed. Ensure camera server is running on port 5000.');
+      }
     } finally {
       setTesting(false);
     }
@@ -207,10 +295,24 @@ function CameraFormModal({
               </div>
             </div>
 
+            {form.brand === 'cpplus' && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3.5 text-xs text-blue-900 space-y-1.5 animate-in fade-in">
+                <div className="flex items-center gap-1.5 font-bold text-blue-950">
+                  <span className="material-symbols-outlined text-sm text-blue-600">info</span>
+                  CP Plus CP-E45Q & Ezykam Setup Guide:
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-[11px] text-blue-800">
+                  <li><strong>1. Enable ONVIF in App:</strong> Open <em>Ezykam+ app</em> ➔ Camera Settings ⚙️ ➔ <em>PC View / ONVIF</em> ➔ Turn ON.</li>
+                  <li><strong>2. Set Password:</strong> Set your ONVIF/PC View password in the app and type it below (Username is usually <code>admin</code>).</li>
+                  <li><strong>3. IP & Port:</strong> Use the camera IP on your Wi-Fi (e.g. <code>192.168.29.156</code>). RTSP Port is <code>554</code>, ONVIF Port is <code>8899</code> or <code>80</code>.</li>
+                </ul>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>IP Address *</label>
-                <input className={inputCls} placeholder="e.g. 192.168.29.63" value={form.ipAddress}
+                <input className={inputCls} placeholder="e.g. 192.168.29.156" value={form.ipAddress}
                   onChange={(e) => field('ipAddress', e.target.value)} />
               </div>
               <div>
@@ -224,7 +326,7 @@ function CameraFormModal({
               <label className={labelCls}>{isEdit ? 'New Password (leave blank to keep)' : 'Password *'}</label>
               <div className="relative">
                 <input className={`${inputCls} pr-10`} type={showPassword ? 'text' : 'password'}
-                  placeholder={isEdit ? '••••••••' : 'Camera password'}
+                  placeholder={isEdit ? '••••••••' : 'Camera ONVIF password'}
                   value={form.password} onChange={(e) => field('password', e.target.value)} />
                 <button type="button" onClick={() => setShowPassword((s) => !s)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700">
@@ -242,7 +344,7 @@ function CameraFormModal({
             <div className="grid grid-cols-2 gap-3 mt-4">
               <div>
                 <label className={labelCls}>ONVIF Port</label>
-                <input type="number" className={inputCls} placeholder="80" value={form.onvifPort ?? 80}
+                <input type="number" className={inputCls} placeholder={form.brand === 'cpplus' ? '8899' : '80'} value={form.onvifPort ?? (form.brand === 'cpplus' ? 8899 : 80)}
                   onChange={(e) => field('onvifPort', Number(e.target.value))} />
               </div>
               <div>
@@ -251,9 +353,28 @@ function CameraFormModal({
                   onChange={(e) => field('port', Number(e.target.value))} />
               </div>
               <div className="col-span-2">
-                <label className={labelCls}>Custom RTSP Path (Explicit Fallback Only)</label>
-                <input className={inputCls} placeholder="Leave empty — ONVIF GetStreamUri used automatically" value={form.customRtspPath ?? ''}
+                <label className={labelCls}>Custom RTSP Path (Optional)</label>
+                <input className={inputCls} placeholder="Leave empty for auto-detect or select a preset below" value={form.customRtspPath ?? ''}
                   onChange={(e) => field('customRtspPath', e.target.value)} />
+                {form.brand === 'cpplus' && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                    <span className="text-[10px] text-slate-500 font-semibold">Presets:</span>
+                    {['/live/ch0', '/onvif1', '/cam/realmonitor?channel=1&subtype=0'].map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => field('customRtspPath', p)}
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded-lg border transition-all ${
+                          form.customRtspPath === p
+                            ? 'bg-blue-600 text-white border-blue-600 font-bold'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </details>

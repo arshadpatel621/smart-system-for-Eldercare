@@ -19,52 +19,192 @@
  *   health_thermometer        0x1809
  */
 
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { db, hasFirebaseConfig } from '../lib/firebase';
 import type {
   Watch, CreateWatchInput, UpdateWatchInput,
-  WatchTestResult, ScannedBLEDevice, BLETestStep,
+  WatchTestResult, ScannedBLEDevice, BLETestStep, WatchConnectionStatus,
 } from '../types/watch';
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:5000';
+const STORAGE_KEY = 'vitalcare_watches';
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error((json as any).error ?? `API error ${res.status}`);
-  return json as T;
+export function deriveWatchConnectionStatus(lastSeen?: string): WatchConnectionStatus {
+  if (!lastSeen) return 'offline';
+  const ageMs = Date.now() - new Date(lastSeen).getTime();
+  if (ageMs < 5 * 60 * 1000) return 'connected'; // 5 minutes
+  if (ageMs < 30 * 60 * 1000) return 'syncing';   // 30 minutes
+  return 'offline';
 }
 
-// ─── Watch CRUD (mirrors camera.ts pattern) ───────────────────────────────────
+function getLocalWatches(): Watch[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
 
-export const fetchWatches = () =>
-  apiFetch<Watch[]>('/api/watches');
+function saveLocalWatches(watches: Watch[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(watches));
+  } catch (e) {
+    console.error('Failed to save watches to localStorage:', e);
+  }
+}
 
-export const fetchWatchesByResident = (residentId: string) =>
-  apiFetch<Watch[]>(`/api/watches/resident/${residentId}`);
+// ─── Watch CRUD (Firestore with LocalStorage Fallback) ────────────────────────
 
-export const fetchWatch = (id: string) =>
-  apiFetch<Watch>(`/api/watches/${id}`);
+export async function fetchWatches(residentId: string = 'demo-resident'): Promise<Watch[]> {
+  if (hasFirebaseConfig && db) {
+    try {
+      const elderRef = doc(db, 'elders', residentId);
+      const snapshot = await getDocs(collection(elderRef, 'watches'));
+      return snapshot.docs.map(d => {
+        const data = d.data() as Omit<Watch, 'id' | 'connectionStatus'>;
+        return {
+          id: d.id,
+          ...data,
+          connectionStatus: deriveWatchConnectionStatus(data.lastSeen),
+        } as Watch;
+      });
+    } catch (err) {
+      console.warn('Failed to load watches from Firestore, falling back to local storage:', err);
+    }
+  }
+  const all = getLocalWatches();
+  return all
+    .filter(w => !residentId || w.residentId === residentId)
+    .map(w => ({ ...w, connectionStatus: deriveWatchConnectionStatus(w.lastSeen) }));
+}
 
-export const createWatch = (input: CreateWatchInput) =>
-  apiFetch<Watch>('/api/watches', { method: 'POST', body: JSON.stringify(input) });
+export async function fetchWatchesByResident(residentId: string): Promise<Watch[]> {
+  return fetchWatches(residentId);
+}
 
-export const updateWatch = (id: string, input: UpdateWatchInput) =>
-  apiFetch<Watch>(`/api/watches/${id}`, { method: 'PUT', body: JSON.stringify(input) });
+export async function fetchWatch(id: string, residentId: string = 'demo-resident'): Promise<Watch> {
+  if (hasFirebaseConfig && db) {
+    const elderRef = doc(db, 'elders', residentId);
+    const snap = await getDoc(doc(collection(elderRef, 'watches'), id));
+    if (snap.exists()) {
+      const data = snap.data() as Omit<Watch, 'id' | 'connectionStatus'>;
+      return {
+        id: snap.id,
+        ...data,
+        connectionStatus: deriveWatchConnectionStatus(data.lastSeen),
+      } as Watch;
+    }
+  }
+  const found = getLocalWatches().find(w => w.id === id);
+  if (!found) throw new Error(`Watch ${id} not found`);
+  return { ...found, connectionStatus: deriveWatchConnectionStatus(found.lastSeen) };
+}
 
-export const deleteWatch = (id: string) =>
-  apiFetch<{ success: boolean }>(`/api/watches/${id}`, { method: 'DELETE' });
+export async function createWatch(input: CreateWatchInput): Promise<Watch> {
+  const residentId = input.residentId || 'demo-resident';
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const newWatch: Watch = {
+    id,
+    ...input,
+    residentId,
+    lastSeen: now,
+    connectionStatus: deriveWatchConnectionStatus(now),
+    createdAt: now,
+    updatedAt: now,
+  };
 
-// ─── BLE Test Result (store server-side after browser BLE test) ───────────────
+  if (hasFirebaseConfig && db) {
+    try {
+      const elderRef = doc(db, 'elders', residentId);
+      await setDoc(doc(collection(elderRef, 'watches'), id), newWatch);
+      return newWatch;
+    } catch (err) {
+      console.warn('Failed to write watch to Firestore, saving locally:', err);
+    }
+  }
 
-export const postBLETestResult = (id: string, result: WatchTestResult) =>
-  apiFetch<{ success: boolean; watch: Watch }>(`/api/watches/${id}/test-result`, {
-    method: 'POST',
-    body: JSON.stringify(result),
-  });
+  const all = getLocalWatches().filter(w => w.id !== id);
+  all.push(newWatch);
+  saveLocalWatches(all);
+  return newWatch;
+}
+
+export async function updateWatch(id: string, input: UpdateWatchInput, residentId: string = 'demo-resident'): Promise<Watch> {
+  const targetResidentId = input.residentId || residentId;
+  const now = new Date().toISOString();
+
+  if (hasFirebaseConfig && db) {
+    try {
+      const elderRef = doc(db, 'elders', targetResidentId);
+      const watchDocRef = doc(collection(elderRef, 'watches'), id);
+      const snap = await getDoc(watchDocRef);
+      const existing = snap.exists() ? (snap.data() as Partial<Watch>) : {};
+      const updated: Watch = {
+        id,
+        watchName: input.watchName ?? existing.watchName ?? 'Smart Watch',
+        bluetoothName: input.bluetoothName ?? existing.bluetoothName ?? '',
+        macAddress: input.macAddress ?? existing.macAddress ?? '',
+        residentId: targetResidentId,
+        healthSource: input.healthSource ?? existing.healthSource ?? 'ble_testing',
+        firmware: input.firmware ?? existing.firmware,
+        battery: input.battery ?? existing.battery,
+        rssi: input.rssi ?? existing.rssi,
+        lastSeen: now,
+        connectionStatus: deriveWatchConnectionStatus(now),
+        createdAt: existing.createdAt ?? now,
+        updatedAt: now,
+      };
+      await setDoc(watchDocRef, updated);
+      return updated;
+    } catch (err) {
+      console.warn('Failed to update watch in Firestore, saving locally:', err);
+    }
+  }
+
+  const all = getLocalWatches();
+  const index = all.findIndex(w => w.id === id);
+  const existing = index >= 0 ? all[index] : ({} as any);
+  const updated: Watch = {
+    ...existing,
+    ...input,
+    id,
+    residentId: targetResidentId,
+    lastSeen: now,
+    connectionStatus: deriveWatchConnectionStatus(now),
+    updatedAt: now,
+  };
+  if (index >= 0) all[index] = updated;
+  else all.push(updated);
+  saveLocalWatches(all);
+  return updated;
+}
+
+export async function deleteWatch(id: string, residentId: string = 'demo-resident'): Promise<{ success: boolean }> {
+  if (hasFirebaseConfig && db) {
+    try {
+      const elderRef = doc(db, 'elders', residentId);
+      await deleteDoc(doc(collection(elderRef, 'watches'), id));
+      return { success: true };
+    } catch (err) {
+      console.warn('Failed to delete watch from Firestore, removing locally:', err);
+    }
+  }
+  const filtered = getLocalWatches().filter(w => w.id !== id);
+  saveLocalWatches(filtered);
+  return { success: true };
+}
+
+// ─── BLE Test Result (store in Firestore / localStorage) ──────────────────────
+
+export async function postBLETestResult(id: string, result: WatchTestResult, residentId: string = 'demo-resident'): Promise<{ success: boolean; watch: Watch }> {
+  const updated = await updateWatch(id, {
+    firmware: result.firmware,
+    battery: result.battery,
+    rssi: result.rssi,
+  }, residentId);
+  return { success: true, watch: updated };
+}
 
 // ─── Web Bluetooth — BLE Scan ─────────────────────────────────────────────────
 

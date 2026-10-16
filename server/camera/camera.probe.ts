@@ -24,10 +24,12 @@ import {
 
 const STANDARD_PORTS: { port: number; label: string }[] = [
   { port: 554,  label: 'RTSP' },
+  { port: 8554, label: 'RTSP Alt' },
+  { port: 8899, label: 'CP Plus / XM ONVIF' },
   { port: 80,   label: 'HTTP / ONVIF' },
+  { port: 8000, label: 'Control / Admin' },
   { port: 443,  label: 'HTTPS' },
   { port: 8080, label: 'HTTP Alt / ONVIF Alt' },
-  { port: 8554, label: 'RTSP Alt' },
   { port: 2020, label: 'Tapo ONVIF' },
 ];
 
@@ -313,15 +315,62 @@ export async function probeCamera(
   console.log(`[Probe] Starting probe for ${ipAddress} (brand: ${brand})`);
   const testedAt = new Date().toISOString();
 
-  // Run port scan, RTSP probe, and ONVIF probe concurrently
-  const [portsScanned, rtspResult, onvifResult] = await Promise.all([
-    scanPorts(ipAddress),
-    probeRtsp(ipAddress, port, brand, username, password, customRtspPath),
-    probeOnvif(ipAddress, onvifPort, username, password),
+  // 1. Scan ports first to see what the camera has open
+  const portsScanned = await scanPorts(ipAddress);
+  const openPorts = portsScanned.filter((p) => p.open).map((p) => p.port);
+
+  // If host is completely unreachable across all ports
+  if (openPorts.length === 0) {
+    return {
+      success: false,
+      ipAddress,
+      brand,
+      portsScanned,
+      rtspAvailable: false,
+      onvifAvailable: false,
+      authError: false,
+      timeout: true,
+      networkUnreachable: true,
+      errorMessage: `Camera at ${ipAddress} is not reachable on your Wi-Fi network. Check IP address and ensure camera is powered on.`,
+      testedAt,
+    };
+  }
+
+  // 2. Select the best ports based on what is actually open
+  const effectiveRtspPort = openPorts.includes(port)
+    ? port
+    : openPorts.includes(554)
+    ? 554
+    : openPorts.includes(8554)
+    ? 8554
+    : port;
+
+  const effectiveOnvifPort = openPorts.includes(onvifPort)
+    ? onvifPort
+    : openPorts.includes(8899)
+    ? 8899
+    : openPorts.includes(80)
+    ? 80
+    : openPorts.includes(8000)
+    ? 8000
+    : onvifPort;
+
+  // 3. Probe RTSP and ONVIF using detected ports
+  const [rtspResult, onvifResult] = await Promise.all([
+    probeRtsp(ipAddress, effectiveRtspPort, brand, username, password, customRtspPath),
+    probeOnvif(ipAddress, effectiveOnvifPort, username, password),
   ]);
 
-  const rtspPortOpen = portsScanned.find((p) => p.port === port)?.open ?? false;
-  const onvifPortOpen = portsScanned.find((p) => p.port === onvifPort)?.open ?? false;
+  let errorMessage: string | undefined;
+  if (!rtspResult.success) {
+    if (rtspResult.authError) {
+      errorMessage = 'Camera Authentication Failed. Check the ONVIF/PC View password in your camera mobile app.';
+    } else if (!openPorts.includes(effectiveRtspPort)) {
+      errorMessage = `Port ${port} (RTSP) is closed on ${ipAddress}. Turn ON "ONVIF" or "PC View" in the camera app (Ezykam+).`;
+    } else {
+      errorMessage = rtspResult.errorMessage ?? onvifResult.errorMessage ?? `None of the known RTSP paths for ${brand.toUpperCase()} responded.`;
+    }
+  }
 
   return {
     success: rtspResult.success,
@@ -343,9 +392,7 @@ export async function probeCamera(
     authError: rtspResult.authError,
     timeout: rtspResult.timeout,
     networkUnreachable: rtspResult.networkUnreachable,
-    errorMessage: rtspResult.success
-      ? undefined
-      : (rtspResult.errorMessage ?? onvifResult.errorMessage),
+    errorMessage,
     testedAt,
   };
 }
