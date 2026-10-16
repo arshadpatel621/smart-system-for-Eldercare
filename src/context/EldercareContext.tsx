@@ -88,13 +88,18 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     (!user && !profile)
   );
 
-  // Default to profile elderId if no override selected
-  const activeElderId =
-    selectedElderId ||
-    profile?.elderId ||
-    (isDemoUser
-      ? 'demo-resident'
-      : (profile?.uid ? `ELD-${profile.uid.slice(0, 6).toUpperCase()}` : null));
+  // Default to assigned elderId for elders, or first linked elder for caregivers
+  const activeElderId = useMemo(() => {
+    if (selectedElderId) return selectedElderId;
+    if (profile?.role === 'elder') return profile.elderId || null;
+    if (profile?.role === 'caregiver') {
+      return profile.linkedElderIds && profile.linkedElderIds.length > 0
+        ? profile.linkedElderIds[0]
+        : null;
+    }
+    if (isDemoUser) return 'demo-resident';
+    return profile?.elderId || null;
+  }, [selectedElderId, profile, isDemoUser]);
 
   const [data, setData] = useState<EldercareData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -108,6 +113,13 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
+
+    // When unauthenticated or on login/signup page, use local demo data directly without calling Firestore
+    if (!user && !profile) {
+      setData(loadLocalEldercareData(activeElderId, undefined, true));
+      setLoading(false);
+      return;
+    }
     
     // Only show loading if we don't have ANY data yet
     if (!data) setLoading(true);
@@ -116,8 +128,11 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     try {
       const result = await loadEldercareData(activeElderId, profile?.fullName, isDemoUser);
       setData(result);
-    } catch (loadError) {
-      console.warn('Firebase data load failed, using local/cached data:', loadError);
+    } catch (loadError: any) {
+      const errMsg = loadError?.message || String(loadError);
+      if (!errMsg.includes('Missing or insufficient permissions')) {
+        console.warn('Firebase data load notice:', errMsg);
+      }
       if (!data) {
         setData(loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
       }

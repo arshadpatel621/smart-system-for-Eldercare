@@ -280,7 +280,7 @@ export async function loadEldercareData(
 ) {
   const isDemo = isDemoTarget(targetElderId, isDemoExplicit);
 
-  if (!hasFirebaseConfig || !db) {
+  if (!hasFirebaseConfig || !db || isDemo || !auth?.currentUser) {
     return loadLocalEldercareData(targetElderId, fullName, isDemo);
   }
 
@@ -543,22 +543,22 @@ export async function ensureEldercareRecord(
   fullName?: string,
   isDemoExplicit?: boolean
 ) {
-  if (!hasFirebaseConfig || !db) {
-    loadLocalEldercareData(targetElderId, fullName, isDemoExplicit);
+  const isDemo = isDemoTarget(targetElderId, isDemoExplicit);
+
+  if (!hasFirebaseConfig || !db || isDemo || !auth?.currentUser) {
+    loadLocalEldercareData(targetElderId, fullName, isDemo);
     return;
   }
 
   const elderRef = doc(db, 'elders', targetElderId);
   const snapshot = await getDoc(elderRef);
   if (snapshot.exists()) {
-    const isDemo = isDemoTarget(targetElderId, isDemoExplicit);
     if (!isDemo) {
       await loadEldercareData(targetElderId, fullName, false);
     }
     return;
   }
 
-  const isDemo = isDemoTarget(targetElderId, isDemoExplicit);
   if (isDemo) {
     await seedFirebaseFromDemo(targetElderId, fullName);
     return;
