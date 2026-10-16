@@ -7,7 +7,7 @@ import type { UserRole } from '../types/auth';
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile, resetPassword } = useAuth();
+  const { signIn, signInWithGoogle, enableGuestMode, loading, initializing, error, clearError, user, profile, resetPassword, hasFirebaseConfig, isAuthAvailable } = useAuth();
 
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [email, setEmail] = useState('');
@@ -18,6 +18,28 @@ export default function Login() {
   const [forgotStatus, setForgotStatus] = useState<string | null>(null);
   const [forgotError, setForgotError] = useState<string | null>(null);
   const [resetSending, setResetSending] = useState(false);
+
+  const handleEmailSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRoleMismatchNotice(null);
+    clearError();
+    try {
+      await signIn({ email: email.trim(), password });
+    } catch {
+      // Error is caught and surfaced through AuthContext.error
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (!selectedRole) return;
+    clearError();
+    setRoleMismatchNotice(null);
+    try {
+      await signInWithGoogle({ role: selectedRole });
+    } catch {
+      // Error is caught and surfaced through AuthContext.error
+    }
+  };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,6 +214,21 @@ export default function Login() {
             <h2 className="text-2xl font-bold text-white capitalize">{selectedRole} Sign In</h2>
             <p className="mt-1 text-sm text-slate-400">Enter your credentials to access your account.</p>
 
+            {/* Local / Firebase status banner if Firebase is not configured */}
+            {!hasFirebaseConfig && (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">
+                <div className="flex items-center gap-2 font-bold text-amber-200">
+                  <svg className="h-4 w-4 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Local Demo Mode Active</span>
+                </div>
+                <p className="mt-1 text-slate-300 leading-relaxed">
+                  Firebase keys are not loaded in the current browser session. Use <strong>Quick Guest Access</strong> below to explore all features with sample data, or verify your <code>.env</code> file and restart Vite.
+                </p>
+              </div>
+            )}
+
             {roleMismatchNotice && (
               <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
                 {roleMismatchNotice}
@@ -211,17 +248,14 @@ export default function Login() {
 
             <form
               className="mt-6 space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setRoleMismatchNotice(null);
-                void signIn({ email: email.trim(), password });
-              }}
+              onSubmit={handleEmailSignIn}
             >
               <div className="space-y-1">
                 <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 ml-1">Email Address</label>
                 <input
                   type="email"
                   placeholder="name@example.com"
+                  autoComplete="username"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -248,6 +282,7 @@ export default function Login() {
                 <input
                   type="password"
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
@@ -301,7 +336,7 @@ export default function Login() {
               <button
                 type="button"
                 disabled={loading}
-                onClick={() => void signInWithGoogle({ role: selectedRole })}
+                onClick={handleGoogleSignIn}
                 className="flex items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 font-bold text-white transition-all hover:bg-white/10 disabled:opacity-60"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -361,6 +396,7 @@ export default function Login() {
                   <input
                     type="email"
                     required
+                    autoComplete="email"
                     placeholder="name@example.com"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}

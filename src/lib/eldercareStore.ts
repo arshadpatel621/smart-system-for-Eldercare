@@ -579,6 +579,26 @@ export function formatFirebaseError(error: unknown) {
 
   const message = error.message.toLowerCase();
 
+  if (message.includes('auth is not available') || message.includes('auth is not ready')) {
+    return 'Firebase Authentication is not configured or offline. Please check your .env settings and restart the Vite server, or use "Quick Guest Access" below to continue.';
+  }
+
+  if (message.includes('popup-closed-by-user')) {
+    return 'Sign-in popup was closed before completing authentication.';
+  }
+
+  if (message.includes('popup-blocked') || message.includes('cancelled-popup-request')) {
+    return 'Sign-in popup was blocked by your browser. Please allow popups for this site.';
+  }
+
+  if (message.includes('unauthorized-domain')) {
+    return 'This domain is not authorized in Firebase Console. Go to Firebase Console → Authentication → Settings → Authorized domains and add localhost.';
+  }
+
+  if (message.includes('operation-not-allowed')) {
+    return 'Google or Email Sign-In is not enabled in Firebase Console. Go to Firebase Console → Authentication → Sign-in method to enable it.';
+  }
+
   if (
     message.includes('auth/invalid-credential') ||
     message.includes('invalid-credential') ||

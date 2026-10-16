@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, hasFirebaseConfig, isAuthAvailable } from '../lib/firebase';
 import {
   formatFirebaseError,
   getUserProfile,
@@ -30,6 +30,8 @@ interface AuthContextValue {
   loading: boolean;
   initializing: boolean;
   error: string | null;
+  hasFirebaseConfig: boolean;
+  isAuthAvailable: boolean;
   signIn: (input: { email: string; password: string }) => Promise<void>;
   signUp: (input: {
     fullName: string;
@@ -208,6 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.localStorage.removeItem('eldercare-guest-session');
       },
       clearError: () => setError(null),
+      hasFirebaseConfig,
+      isAuthAvailable,
     }),
     [user, profile, loading, initializing, error],
   );

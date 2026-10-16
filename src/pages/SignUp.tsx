@@ -77,7 +77,7 @@ export default function SignUp() {
 
           <form
             className="space-y-5"
-            onSubmit={(event) => {
+            onSubmit={async (event) => {
               event.preventDefault();
               setFormError('');
 
@@ -86,7 +86,11 @@ export default function SignUp() {
                 return;
               }
 
-              void signUp({ fullName, email: email.trim(), password, role });
+              try {
+                await signUp({ fullName, email: email.trim(), password, role });
+              } catch {
+                // Handled via AuthContext error
+              }
             }}
           >
             <div className="space-y-1">
@@ -96,6 +100,7 @@ export default function SignUp() {
                 placeholder="e.g. Eleanor Vance"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
+                autoComplete="name"
                 required
               />
             </div>
@@ -108,6 +113,7 @@ export default function SignUp() {
                 placeholder="name@example.com"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
                 disabled={!!user}
                 required
               />
@@ -162,6 +168,7 @@ export default function SignUp() {
                     placeholder="••••••••"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
+                    autoComplete="new-password"
                     required
                   />
                 </div>
@@ -173,6 +180,7 @@ export default function SignUp() {
                     placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(event) => setConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
                     required
                   />
                 </div>

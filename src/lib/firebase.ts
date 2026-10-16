@@ -22,20 +22,30 @@ const requiredConfig = [
   firebaseConfig.appId,
 ];
 
-export const hasFirebaseConfig = requiredConfig.every(Boolean);
+export const hasFirebaseConfig = requiredConfig.every((key) => typeof key === 'string' && key.trim().length > 0);
 export const elderId = import.meta.env.VITE_FIREBASE_ELDER_ID || 'demo-resident';
 
-const app = hasFirebaseConfig ? initializeApp(firebaseConfig) : null;
+let app = null;
+let auth = null;
+let db = null;
 
-export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+if (hasFirebaseConfig) {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    void setPersistence(auth, browserLocalPersistence);
+  } catch (error) {
+    console.warn('[Firebase] Failed to initialize Firebase app or auth:', error);
+  }
+}
+
+export { app, auth, db };
+export const isAuthAvailable = Boolean(auth);
 export const googleProvider = new GoogleAuthProvider();
 
 // Initialize Analytics if supported and config exists
 export const analytics = app && typeof window !== 'undefined' 
-  ? isSupported().then(supported => supported ? getAnalytics(app) : null)
+  ? isSupported().then(supported => supported ? getAnalytics(app!) : null)
   : null;
 
-if (auth) {
-  void setPersistence(auth, browserLocalPersistence);
-}
