@@ -242,9 +242,26 @@ export default function Login() {
             )}
 
             {error ? (
-              <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3.5 text-sm text-red-400">
                 <div className="flex items-start justify-between gap-4">
-                  <span className="whitespace-pre-line leading-relaxed">{error}</span>
+                  <div className="space-y-2">
+                    <span className="whitespace-pre-line leading-relaxed">{error}</span>
+                    {error.includes('auth/unauthorized-domain') && (
+                      <div className="pt-1">
+                        <a
+                          href="https://console.firebase.google.com/project/smart-eldercare-81352992-1b464/authentication/settings"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-200 hover:bg-red-500/30 transition-colors"
+                        >
+                          <span>Open VitalCare Firebase Auth Settings</span>
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      </div>
+                    )}
+                  </div>
                   <button onClick={clearError} className="font-bold hover:text-white transition-colors text-red-300 shrink-0 mt-0.5">
                     Close
                   </button>
