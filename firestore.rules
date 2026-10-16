@@ -34,21 +34,43 @@ service cloud.firestore {
     }
 
     function hasRelationship(elderId) {
-      return exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + elderId ));
+      return exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + elderId ))
+        || (hasUserProfile() && 'linkedElderIds' in userDoc().data && elderId in userDoc().data.linkedElderIds);
     }
 
     function canAccessElder(elderId) {
       return isAdmin() 
-        || (signedIn() && isElder() && (assignedElderId() == elderId || (userDoc().data.elderId == elderId)))
-        || (signedIn() && isCaregiver() && (hasRelationship(elderId) || (elderId in userDoc().data.linkedElderIds)))
+        || (signedIn() && isElder() && (assignedElderId() == elderId || (hasUserProfile() && 'elderId' in userDoc().data && userDoc().data.elderId == elderId)))
+        || (signedIn() && isCaregiver() && (hasRelationship(elderId) || (hasUserProfile() && 'linkedElderIds' in userDoc().data && elderId in userDoc().data.linkedElderIds)))
         || (signedIn() && request.resource.data.id == elderId);
+    }
+
+    function canCaregiverAccessElderUser(targetUserData) {
+      return isCaregiver() && (
+        ('elderId' in targetUserData && hasRelationship(targetUserData.elderId)) ||
+        ('elderId' in targetUserData && hasUserProfile() && 'linkedElderIds' in userDoc().data && targetUserData.elderId in userDoc().data.linkedElderIds) ||
+        exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + targetUserData.elderId )) ||
+        exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + targetUserData.uid ))
+      );
+    }
+
+    function canElderAccessCaregiverUser(targetCaregiverUid) {
+      return isElder() && (
+        exists(/databases/$(database)/documents/relationships/$( 'rel-' + targetCaregiverUid + '-' + assignedElderId() )) ||
+        exists(/databases/$(database)/documents/relationships/$( 'rel-' + targetCaregiverUid + '-' + request.auth.uid ))
+      );
     }
 
     match /users/{uid} {
       // Allow create if authenticated and not self-assigning admin role
       allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role != 'admin';
-      // Allow signed in users to read profiles for elder lookup and relationship management
-      allow read: if signedIn();
+      // Secure read: self, admin, authorized linked caregiver, or linked elder
+      allow read: if signedIn() && (
+        request.auth.uid == uid ||
+        isAdmin() ||
+        canCaregiverAccessElderUser(resource.data) ||
+        canElderAccessCaregiverUser(uid)
+      );
       // Prevent normal users from altering their role field during updates
       allow update: if signedIn() && (
         isAdmin() || (request.auth.uid == uid && request.resource.data.role == resource.data.role)
@@ -58,12 +80,22 @@ service cloud.firestore {
 
     match /elderIds/{elderId} {
       allow create, update: if signedIn() && request.resource.data.elderUid == request.auth.uid;
-      allow read: if signedIn();
+      // Allow individual elderId lookup by ID for relationship linking, prevent collection scraping
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     match /relationships/{relId} {
-      allow create: if signedIn() && (isCaregiver() || isAdmin()) && request.resource.data.caregiverUid == request.auth.uid && request.resource.data.status == 'active';
-      allow read: if signedIn() && (request.auth.uid == resource.data.caregiverUid || request.auth.uid == resource.data.elderUid || isAdmin());
+      allow create: if signedIn() 
+        && (isCaregiver() || isAdmin()) 
+        && request.resource.data.caregiverUid == request.auth.uid 
+        && request.resource.data.status == 'active';
+      allow read: if signedIn() && (
+        request.auth.uid == resource.data.caregiverUid || 
+        request.auth.uid == resource.data.elderUid || 
+        isAdmin()
+      );
       allow update, delete: if isAdmin();
     }
 

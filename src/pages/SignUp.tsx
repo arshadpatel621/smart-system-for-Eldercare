@@ -12,6 +12,7 @@ export default function SignUp() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<PublicUserRole>('caregiver');
+  const [elderIdInput, setElderIdInput] = useState('');
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
@@ -86,8 +87,20 @@ export default function SignUp() {
                 return;
               }
 
+              const cleanElderId = elderIdInput.trim().toUpperCase();
+              if (role === 'caregiver' && cleanElderId && !/^ELD-[A-Z0-9]{4,10}$/i.test(cleanElderId)) {
+                setFormError('Invalid Elder ID format. Elder IDs should look like ELD-7K4P92.');
+                return;
+              }
+
               try {
-                await signUp({ fullName, email: email.trim(), password, role });
+                await signUp({
+                  fullName,
+                  email: email.trim(),
+                  password,
+                  role,
+                  elderId: role === 'caregiver' && cleanElderId ? cleanElderId : undefined,
+                });
               } catch {
                 // Handled via AuthContext error
               }
@@ -155,6 +168,27 @@ export default function SignUp() {
             {role === 'elder' && (
               <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-xs text-blue-300">
                 ℹ️ A unique shareable <strong>Elder ID</strong> (e.g. <code>ELD-7K4P92</code>) will automatically be generated for your account. You can share this ID with your caregiver to connect your care dashboard.
+              </div>
+            )}
+
+            {role === 'caregiver' && (
+              <div className="space-y-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-blue-300">
+                    Elder ID to Connect (Optional)
+                  </label>
+                  <span className="text-[10px] text-slate-400">Optional</span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. ELD-7K4P92 (or connect later in portal)"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 font-mono text-white uppercase placeholder:normal-case placeholder:font-sans placeholder:text-slate-500 focus:border-blue-500 focus:outline-none transition-all text-sm"
+                  value={elderIdInput}
+                  onChange={(event) => setElderIdInput(event.target.value.toUpperCase())}
+                />
+                <p className="text-[11px] text-slate-400">
+                  Enter the Elder ID provided by the resident to establish an authorized care link right away, or leave blank to link later.
+                </p>
               </div>
             )}
 

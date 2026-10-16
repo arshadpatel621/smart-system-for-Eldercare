@@ -11,6 +11,11 @@ import { doc, getDoc, runTransaction, setDoc } from 'firebase/firestore';
 
 import { auth, db, googleProvider } from './firebase';
 import { ensureEldercareRecord, formatFirebaseError } from './eldercareStore';
+import {
+  connectCaregiverToElder,
+  findElderByElderId,
+  validateElderIdFormat,
+} from '../services/relationshipService';
 import type { AppUserProfile, UserRole } from '../types/auth';
 
 export async function generateUniqueElderId(): Promise<string> {
@@ -131,6 +136,24 @@ export async function getUserProfile(uid: string) {
       } catch (err) {
         console.warn('Could not auto-reserve elderId in Firestore:', err);
       }
+    } else if (profile.role === 'elder' && profile.elderId && profile.elderId.startsWith('ELD-')) {
+      // Sync fullName and status to elderIds reservation record
+      try {
+        const resRef = doc(db, 'elderIds', profile.elderId);
+        void setDoc(
+          resRef,
+          {
+            elderUid: profile.uid,
+            elderId: profile.elderId,
+            fullName: profile.fullName || 'Resident',
+            status: profile.status || 'active',
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } catch {
+        // Non-blocking background sync
+      }
     }
 
     writeCachedProfile(profile);
@@ -181,8 +204,10 @@ export async function reserveElderIdAtomic(
         transaction.set(reservationRef, {
           elderUid: currentProfile.uid,
           elderId: candidateId,
+          fullName: currentProfile.fullName || 'Resident',
+          status: currentProfile.status || 'active',
           createdAt: new Date().toISOString(),
-        });
+        }, { merge: true });
 
         transaction.set(userDocRef, currentProfile, { merge: true });
       });
@@ -280,7 +305,7 @@ async function buildUserProfile(
   }
 
   if (isCaregiver) {
-    profile.linkedElderIds = [];
+    profile.linkedElderIds = providedElderId ? [providedElderId.trim().toUpperCase()] : [];
   }
 
   return profile;
@@ -295,15 +320,43 @@ export async function signUpWithEmail(input: SignUpInput) {
     throw new Error('Firebase Auth is not available.');
   }
 
+  const rawElderId = input.elderId?.trim().toUpperCase();
+
+  // If registering as a caregiver with an Elder ID, validate it beforehand
+  if (input.role === 'caregiver' && rawElderId) {
+    if (!validateElderIdFormat(rawElderId)) {
+      throw new Error('Invalid Elder ID format. Elder IDs should look like ELD-7K4P92.');
+    }
+    const elder = await findElderByElderId(rawElderId);
+    if (!elder) {
+      throw new Error(
+        `We couldn't find an active Elder with ID "${rawElderId}". Please verify the Elder ID or leave it empty to connect later.`
+      );
+    }
+  }
+
   const result = await createUserWithEmailAndPassword(auth, input.email, input.password);
   await updateProfile(result.user, { displayName: input.fullName });
 
-  const profile = await buildUserProfile(result.user, input.role, 'password', input.fullName, input.elderId);
+  const profile = await buildUserProfile(result.user, input.role, 'password', input.fullName, rawElderId);
   await saveUserProfile(profile);
 
   if (profile.role === 'elder' && profile.elderId) {
     await ensureEldercareRecord(profile.elderId, profile.fullName);
   }
+
+  // If registering as caregiver with an Elder ID, create the relationship record
+  if (profile.role === 'caregiver' && rawElderId) {
+    try {
+      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+      if (!linkResult.success) {
+        console.warn('[signUpWithEmail] Initial elder connection notice:', linkResult.message);
+      }
+    } catch (linkErr) {
+      console.warn('[signUpWithEmail] Caregiver linking error:', linkErr);
+    }
+  }
+
   return profile;
 }
 
@@ -319,12 +372,38 @@ export async function saveProfileForCurrentUser(
     throw new Error('Administrator accounts cannot be registered publicly.');
   }
 
-  const profile = await buildUserProfile(user, input.role, 'google', input.fullName, input.elderId);
+  const rawElderId = input.elderId?.trim().toUpperCase();
+
+  if (input.role === 'caregiver' && rawElderId) {
+    if (!validateElderIdFormat(rawElderId)) {
+      throw new Error('Invalid Elder ID format. Elder IDs should look like ELD-7K4P92.');
+    }
+    const elder = await findElderByElderId(rawElderId);
+    if (!elder) {
+      throw new Error(
+        `We couldn't find an active Elder with ID "${rawElderId}". Please verify the Elder ID or leave it empty to connect later.`
+      );
+    }
+  }
+
+  const profile = await buildUserProfile(user, input.role, 'google', input.fullName, rawElderId);
   await saveUserProfile(profile);
 
   if (profile.role === 'elder' && profile.elderId) {
     await ensureEldercareRecord(profile.elderId, profile.fullName);
   }
+
+  if (profile.role === 'caregiver' && rawElderId) {
+    try {
+      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+      if (!linkResult.success) {
+        console.warn('[saveProfileForCurrentUser] Initial elder connection notice:', linkResult.message);
+      }
+    } catch (linkErr) {
+      console.warn('[saveProfileForCurrentUser] Caregiver linking error:', linkErr);
+    }
+  }
+
   return profile;
 }
 
