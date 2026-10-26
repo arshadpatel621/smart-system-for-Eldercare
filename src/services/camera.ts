@@ -4,7 +4,6 @@
  * Communicates with the Express backend REST endpoints.
  * Credentials are NEVER stored or handled on the frontend.
  */
-
 const API_BASE =
   (import.meta.env.VITE_CAMERA_API_URL as string | undefined) ??
   (import.meta.env.VITE_API_URL as string | undefined) ??
