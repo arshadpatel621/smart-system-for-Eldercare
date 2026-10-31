@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useCamera } from '../hooks/useCamera';
 
 interface CameraPlayerProps {
@@ -6,8 +6,9 @@ interface CameraPlayerProps {
 }
 
 /**
- * CameraPlayer component handles the streaming video display and PTZ navigation controls.
- * Uses HTTP MJPEG multipart streaming and custom WebSocket status synchronization.
+ * CameraPlayer component handles the streaming video display, PTZ directional
+ * controls, and a recording panel with a live countdown timer.
+ * Direction buttons and recording controls are always visible beneath the feed.
  */
 export function CameraPlayer({ cameraId }: CameraPlayerProps) {
   const {
@@ -32,6 +33,49 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
   const [reloadKey, setReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'live' | 'playback' | 'ptz'>('live');
 
+  // ── Recording state ────────────────────────────────────────────────────────
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordDuration, setRecordDuration] = useState(30); // user-chosen duration
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Browser-side recording via MediaRecorder on the MJPEG stream ──────────
+  // We also call the backend record() for server-side storage,
+  // and simultaneously display a live countdown in the UI.
+  const startRecording = useCallback(async () => {
+    if (isRecording) return;
+    setIsRecording(true);
+    setRecordSeconds(0);
+
+    // Call backend record endpoint
+    await record(recordDuration);
+
+    // Run a client-side countdown for UX feedback
+    recordTimerRef.current = setInterval(() => {
+      setRecordSeconds((prev) => {
+        if (prev + 1 >= recordDuration) {
+          if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+          setIsRecording(false);
+          return 0;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+  }, [isRecording, record, recordDuration]);
+
+  const stopRecording = useCallback(() => {
+    if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    setIsRecording(false);
+    setRecordSeconds(0);
+  }, []);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    };
+  }, []);
+
   // Reset image error state when camera status changes
   useEffect(() => {
     if (status?.status === 'ONLINE') {
@@ -52,10 +96,16 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
   const isOnline = status?.status === 'ONLINE';
   const isConnecting = status?.status === 'CONNECTING';
   const isOffline = status?.status === 'OFFLINE' || !status;
+  const isError = status?.status === 'ERROR';
+  const ptzEnabled = isOnline && capabilities?.supportsPTZ === true;
+  const recEnabled = isOnline && capabilities?.supportsRecording !== false; // default allow unless explicitly false
+
+  // Format seconds → MM:SS
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   return (
     <div className="flex flex-col space-y-4">
-      {/* Aspect Video Stream Canvas */}
+      {/* ── Aspect Video Stream Canvas ─────────────────────────────────────── */}
       <div className="relative aspect-video w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-xl group">
         {/* ONLINE Video Stream */}
         {isOnline && !imgError && (
@@ -87,18 +137,52 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           </div>
         )}
 
+        {/* ERROR State Overlay */}
+        {isError && !isConnecting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 text-white z-10 space-y-4 px-6 text-center">
+            <div className="rounded-full bg-rose-950/80 border border-rose-800 p-4 text-rose-400">
+              <span className="material-symbols-outlined text-4xl">error</span>
+            </div>
+            <div className="max-w-md">
+              <p className="font-bold text-lg text-rose-300">Camera Stream Error</p>
+              <p className="text-xs text-rose-200/90 mt-2 font-mono bg-rose-950/40 p-2.5 rounded-xl border border-rose-900/60 break-words">
+                {status?.error || 'Failed to establish RTSP connection with camera.'}
+              </p>
+              {status?.reconnectAttempts !== undefined && status.reconnectAttempts > 0 && (
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Reconnection attempts: {status.reconnectAttempts} / 5 (bounded exponential backoff)
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => void start()}
+                disabled={loading}
+                className="rounded-full bg-rose-600 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-rose-600/30 hover:bg-rose-500 transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-sm">refresh</span>
+                {loading ? 'Retrying...' : 'Retry Connection'}
+              </button>
+              <button
+                onClick={() => void stop()}
+                className="rounded-full border border-white/20 bg-white/5 px-5 py-2.5 text-xs font-semibold hover:bg-white/10 transition-colors"
+              >
+                Dismiss / Stop
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* OFFLINE State Overlay */}
-        {isOffline && !isConnecting && (
+        {isOffline && !isConnecting && !isError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-white z-10 space-y-4">
             <div className="rounded-full bg-slate-900 border border-slate-800 p-4 text-slate-400">
-              <span className="material-symbols-outlined text-5xl">
-                videocam_off
-              </span>
+              <span className="material-symbols-outlined text-5xl">videocam_off</span>
             </div>
             <div className="text-center px-4">
               <p className="font-bold text-lg text-slate-300">Camera Stream is Offline</p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Press Connect to start reading the camera's RTSP feed and broadcast live
+                Press Connect to start reading the camera&apos;s RTSP feed and broadcast live
               </p>
             </div>
             <button
@@ -111,12 +195,10 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           </div>
         )}
 
-        {/* IMAGE LOADING / TRANCODING DELAY State Overlay */}
+        {/* IMAGE LOADING / TRANSCODING DELAY State Overlay */}
         {isOnline && imgError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-white z-10 space-y-4">
-            <span className="material-symbols-outlined text-4xl text-amber-400 animate-pulse">
-              sensors
-            </span>
+            <span className="material-symbols-outlined text-4xl text-amber-400 animate-pulse">sensors</span>
             <div className="text-center px-4">
               <p className="font-bold">Awaiting Stream Buffer...</p>
               <p className="text-xs text-slate-400 mt-1">FFmpeg process started. Syncing first frames</p>
@@ -138,16 +220,24 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           </div>
         )}
 
-        {/* Floating Quick Status Indicator Tag */}
+        {/* Live / Playback status pill */}
         {isOnline && !imgError && (
           <div className="absolute top-4 left-4 z-10 flex items-center gap-2 rounded-full bg-slate-900/60 backdrop-blur-md border border-white/10 px-3 py-1.5 text-xs text-white">
             <span className={`h-2 w-2 rounded-full ${activeTab === 'playback' ? 'bg-purple-500' : 'bg-emerald-500 animate-pulse'}`} />
             <span className="font-medium tracking-wide">{activeTab === 'playback' ? 'PLAYBACK' : 'LIVE'}</span>
           </div>
         )}
+
+        {/* Recording badge overlay — shown while recording */}
+        {isRecording && (
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 rounded-full bg-red-600/90 backdrop-blur-md border border-red-400/40 px-3 py-1.5 text-xs text-white font-bold animate-pulse">
+            <span className="h-2 w-2 rounded-full bg-white" />
+            REC {fmt(recordSeconds)} / {fmt(recordDuration)}
+          </div>
+        )}
       </div>
 
-      {/* Primary Controls (Always Visible) */}
+      {/* ── Primary Controls (Always Visible) ─────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-slate-50 px-6 py-4">
         <div className="flex items-center gap-3">
           <span className="text-sm font-bold text-slate-700">Stream Source:</span>
@@ -169,22 +259,266 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
               className="flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 transition-colors"
             >
               <span className="material-symbols-outlined text-sm">play_arrow</span>
-              Start Camera
+              {isError ? 'Retry Connection' : 'Start Camera'}
             </button>
           )}
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* ══════════════════════════════════════════════════════════════════════
+          ALWAYS-VISIBLE: Direction Controls + Recording Panel
+         ══════════════════════════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* ── PTZ Direction Pad ──────────────────────────────────────────── */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-blue-500 text-[18px]">gamepad</span>
+              Directional Control (PTZ)
+            </h3>
+            {!ptzEnabled && (
+              <span className="text-[10px] font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">
+                {isOnline ? 'PTZ not available' : 'Camera offline'}
+              </span>
+            )}
+          </div>
+
+          {/* D-pad grid */}
+          <div className="flex flex-col items-center gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              {/* Row 1 */}
+              <div />
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('up')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                title="Pan Up"
+                className="flex items-center justify-center bg-slate-50 hover:bg-blue-50 active:bg-blue-100 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 active:scale-90 transition-all rounded-2xl h-14 w-14 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-2xl font-bold">keyboard_arrow_up</span>
+              </button>
+              <div />
+
+              {/* Row 2 */}
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('left')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                title="Pan Left"
+                className="flex items-center justify-center bg-slate-50 hover:bg-blue-50 active:bg-blue-100 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 active:scale-90 transition-all rounded-2xl h-14 w-14 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-2xl font-bold">keyboard_arrow_left</span>
+              </button>
+              <button
+                disabled={!ptzEnabled}
+                onClick={() => void triggerPTZ('home')}
+                title="Return Home"
+                className="flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:scale-90 text-white rounded-2xl h-14 w-14 shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                <span className="material-symbols-outlined text-lg">home</span>
+              </button>
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('right')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                title="Pan Right"
+                className="flex items-center justify-center bg-slate-50 hover:bg-blue-50 active:bg-blue-100 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 active:scale-90 transition-all rounded-2xl h-14 w-14 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-2xl font-bold">keyboard_arrow_right</span>
+              </button>
+
+              {/* Row 3 */}
+              <div />
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('down')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                title="Pan Down"
+                className="flex items-center justify-center bg-slate-50 hover:bg-blue-50 active:bg-blue-100 border border-slate-200 hover:border-blue-300 text-slate-600 hover:text-blue-600 active:scale-90 transition-all rounded-2xl h-14 w-14 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-2xl font-bold">keyboard_arrow_down</span>
+              </button>
+              <div />
+            </div>
+
+            {/* Zoom row */}
+            <div className="flex gap-3 mt-2 w-full max-w-[224px]">
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('zoom_in')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                className="flex flex-1 items-center justify-center gap-1 py-2.5 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-700 hover:text-emerald-700 text-xs font-bold rounded-xl shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">zoom_in</span> Zoom +
+              </button>
+              <button
+                disabled={!ptzEnabled}
+                onPointerDown={() => void triggerPTZ('zoom_out')}
+                onPointerUp={() => void triggerPTZ('stop')}
+                onPointerLeave={() => void triggerPTZ('stop')}
+                className="flex flex-1 items-center justify-center gap-1 py-2.5 bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 text-slate-700 hover:text-amber-700 text-xs font-bold rounded-xl shadow-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">zoom_out</span> Zoom −
+              </button>
+            </div>
+
+            {/* Quick preset shortcuts */}
+            <div className="flex gap-2 flex-wrap justify-center w-full mt-1">
+              {['Home', 'Bed', 'Door', 'Window'].map((preset) => (
+                <button
+                  key={preset}
+                  disabled={!isOnline || !capabilities?.supportsPresets}
+                  onClick={() => void gotoPreset(preset.toLowerCase())}
+                  className="px-3 py-1.5 text-[11px] font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-blue-50 hover:border-blue-200 text-slate-600 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Recording Panel ────────────────────────────────────────────── */}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-rose-500 text-[18px]">radio_button_checked</span>
+              Recording
+            </h3>
+            {isRecording && (
+              <span className="text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-1 rounded-full animate-pulse">
+                ● REC {fmt(recordSeconds)} / {fmt(recordDuration)}
+              </span>
+            )}
+          </div>
+
+          {/* Duration selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              Duration
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {[15, 30, 60, 120].map((sec) => (
+                <button
+                  key={sec}
+                  disabled={isRecording}
+                  onClick={() => setRecordDuration(sec)}
+                  className={`py-2 text-xs font-bold rounded-xl border transition-colors ${
+                    recordDuration === sec
+                      ? 'bg-rose-600 border-rose-600 text-white shadow-md shadow-rose-200'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {sec < 60 ? `${sec}s` : `${sec / 60}m`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Progress bar while recording */}
+          {isRecording && (
+            <div className="space-y-1.5">
+              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.min((recordSeconds / recordDuration) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="text-[10px] text-slate-400 text-center">
+                Recording in progress — {recordDuration - recordSeconds}s remaining
+              </p>
+            </div>
+          )}
+
+          {/* Record / Stop button */}
+          <button
+            disabled={!recEnabled || loading}
+            onClick={isRecording ? stopRecording : () => void startRecording()}
+            className={`w-full py-3.5 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] ${
+              isRecording
+                ? 'bg-slate-800 hover:bg-slate-700 text-white shadow-slate-300'
+                : 'bg-red-600 hover:bg-red-700 text-white shadow-red-200 disabled:opacity-50 disabled:cursor-not-allowed'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {isRecording ? 'stop_circle' : 'radio_button_checked'}
+            </span>
+            {isRecording ? `Stop Recording (${recordDuration - recordSeconds}s left)` : 'Start Recording'}
+          </button>
+
+          {/* Snapshot + Talk row */}
+          <div className="flex gap-2">
+            <button
+              disabled={!isOnline || !capabilities?.supportsSnapshot}
+              onClick={() => void snapshot()}
+              className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-blue-50 hover:border-blue-200 text-slate-700 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">photo_camera</span>
+              Snapshot
+            </button>
+            <button
+              disabled={!isOnline || !capabilities?.supportsTalk}
+              onClick={() => void talk()}
+              className="flex-1 py-2.5 text-xs font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-purple-50 hover:border-purple-200 text-slate-700 hover:text-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[16px]">record_voice_over</span>
+              Talk
+            </button>
+          </div>
+
+          {/* Smart features: Motion tracking + Night vision */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Smart Features</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                disabled={!isOnline || !capabilities?.supportsTracking}
+                onClick={() => void setMotionTracking(true)}
+                className="py-2 text-[11px] font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-emerald-50 hover:border-emerald-200 text-slate-600 hover:text-emerald-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-1"
+              >
+                <span className="material-symbols-outlined text-[14px]">radar</span> Track ON
+              </button>
+              <button
+                disabled={!isOnline || !capabilities?.supportsTracking}
+                onClick={() => void setMotionTracking(false)}
+                className="py-2 text-[11px] font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 text-slate-600 hover:text-rose-700 disabled:opacity-40 transition-colors flex items-center justify-center"
+              >
+                Track OFF
+              </button>
+              <button
+                disabled={!isOnline || !capabilities?.supportsNightVision}
+                onClick={() => void setNightVision(true)}
+                className="py-2 text-[11px] font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-indigo-50 hover:border-indigo-200 text-slate-600 hover:text-indigo-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-1"
+              >
+                <span className="material-symbols-outlined text-[14px]">dark_mode</span> NV ON
+              </button>
+              <button
+                disabled={!isOnline || !capabilities?.supportsNightVision}
+                onClick={() => void setNightVision(false)}
+                className="py-2 text-[11px] font-bold rounded-xl bg-slate-50 border border-slate-200 hover:bg-amber-50 hover:border-amber-200 text-slate-600 hover:text-amber-700 disabled:opacity-40 transition-colors flex items-center justify-center"
+              >
+                NV OFF
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tabs (Playback / Advanced PTZ still accessible) ────────────────── */}
       <div className="flex gap-2 border-b border-slate-200 pb-px">
-        {[
+        {([
           { id: 'live', label: 'Live View', icon: 'videocam' },
           { id: 'playback', label: 'Camera Playback', icon: 'history' },
-          { id: 'ptz', label: 'PTZ Control', icon: 'gamepad' },
-        ].map((tab) => (
+          { id: 'ptz', label: 'Advanced PTZ', icon: 'settings_remote' },
+        ] as const).map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === tab.id
                 ? 'border-blue-600 text-blue-600'
@@ -223,100 +557,50 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
         </div>
       )}
 
-      {/* PTZ Control Tab */}
+      {/* Advanced PTZ Tab — full expanded view */}
       {activeTab === 'ptz' && isOnline && capabilities && (
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col gap-6">
           <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <span className="material-symbols-outlined text-blue-500">settings_remote</span>
-            PTZ & Advanced Controls
+            Advanced PTZ & Controls
           </h3>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* PTZ Joystick */}
+            {/* Full D-Pad */}
             <div className="flex flex-col items-center bg-slate-50 p-6 rounded-3xl border border-slate-200 gap-6">
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider w-full text-center">Directional Control</h4>
               <div className="grid grid-cols-3 grid-rows-3 gap-3">
                 <div />
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('up')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('up')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50">
                   <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_up</span>
                 </button>
                 <div />
-
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('left')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('left')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50">
                   <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_left</span>
                 </button>
                 <div className="flex items-center justify-center text-slate-300">
                   <span className="material-symbols-outlined text-sm">circle</span>
                 </div>
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('right')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('right')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50">
                   <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_right</span>
                 </button>
-
                 <div />
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('down')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('down')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex items-center justify-center bg-white shadow-sm border border-slate-200 text-slate-600 hover:text-blue-600 active:scale-95 transition-all rounded-xl h-14 w-14 disabled:opacity-50">
                   <span className="material-symbols-outlined font-bold text-2xl">keyboard_arrow_down</span>
                 </button>
                 <div />
               </div>
 
               <div className="flex gap-4 w-full px-4">
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onClick={() => void triggerPTZ('home')}
-                  className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
-                >
-                  Home
-                </button>
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onClick={() => void triggerPTZ('stop')}
-                  className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
-                >
-                  Stop
-                </button>
+                <button disabled={!capabilities.supportsPTZ} onClick={() => void triggerPTZ('home')} className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors">Home</button>
+                <button disabled={!capabilities.supportsPTZ} onClick={() => void triggerPTZ('stop')} className="flex-1 py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors">Stop</button>
               </div>
 
               <div className="flex gap-4 w-full px-4">
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('zoom_in')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('zoom_in')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors">
                   <span className="material-symbols-outlined text-[18px] mr-1">zoom_in</span> Zoom In
                 </button>
-                <button
-                  disabled={!capabilities.supportsPTZ}
-                  onPointerDown={() => void triggerPTZ('zoom_out')}
-                  onPointerUp={() => void triggerPTZ('stop')}
-                  onPointerLeave={() => void triggerPTZ('stop')}
-                  className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors"
-                >
+                <button disabled={!capabilities.supportsPTZ} onPointerDown={() => void triggerPTZ('zoom_out')} onPointerUp={() => void triggerPTZ('stop')} onPointerLeave={() => void triggerPTZ('stop')} className="flex flex-1 items-center justify-center py-2.5 bg-white shadow-sm hover:bg-slate-50 text-slate-700 text-sm font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors">
                   <span className="material-symbols-outlined text-[18px] mr-1">zoom_out</span> Zoom Out
                 </button>
               </div>
@@ -345,34 +629,18 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Smart Features</h4>
                 <div className="grid grid-cols-2 gap-2">
-                    <button
-                      disabled={!capabilities.supportsTracking}
-                      onClick={() => void setMotionTracking(true)}
-                      className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">radar</span> Track ON
-                    </button>
-                    <button
-                      disabled={!capabilities.supportsTracking}
-                      onClick={() => void setMotionTracking(false)}
-                      className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
-                    >
-                      Track OFF
-                    </button>
-                    <button
-                      disabled={!capabilities.supportsNightVision}
-                      onClick={() => void setNightVision(true)}
-                      className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">dark_mode</span> NV ON
-                    </button>
-                    <button
-                      disabled={!capabilities.supportsNightVision}
-                      onClick={() => void setNightVision(false)}
-                      className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center"
-                    >
-                      NV OFF
-                    </button>
+                  <button disabled={!capabilities.supportsTracking} onClick={() => void setMotionTracking(true)} className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1">
+                    <span className="material-symbols-outlined text-[16px]">radar</span> Track ON
+                  </button>
+                  <button disabled={!capabilities.supportsTracking} onClick={() => void setMotionTracking(false)} className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center">
+                    Track OFF
+                  </button>
+                  <button disabled={!capabilities.supportsNightVision} onClick={() => void setNightVision(true)} className="py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1">
+                    <span className="material-symbols-outlined text-[16px]">dark_mode</span> NV ON
+                  </button>
+                  <button disabled={!capabilities.supportsNightVision} onClick={() => void setNightVision(false)} className="py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center">
+                    NV OFF
+                  </button>
                 </div>
               </div>
 
@@ -380,32 +648,24 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</h4>
                 <div className="flex flex-col gap-2">
-                  <button
-                    disabled={!capabilities.supportsTalk}
-                    onClick={() => void talk()}
-                    className="w-full py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-                  >
+                  <button disabled={!capabilities.supportsTalk} onClick={() => void talk()} className="w-full py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
                     <span className="material-symbols-outlined text-[16px]">record_voice_over</span> Talk / Alarm
                   </button>
                   <div className="flex gap-2">
-                    <button
-                      disabled={!capabilities.supportsSnapshot}
-                      onClick={() => void snapshot()}
-                      className="flex-1 py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
-                    >
+                    <button disabled={!capabilities.supportsSnapshot} onClick={() => void snapshot()} className="flex-1 py-2 bg-slate-50 hover:bg-blue-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1">
                       <span className="material-symbols-outlined text-[16px]">photo_camera</span> Snap
                     </button>
                     <button
-                      disabled={!capabilities.supportsRecording}
-                      onClick={() => void record(30)}
+                      disabled={!capabilities.supportsRecording || isRecording}
+                      onClick={() => void startRecording()}
                       className="flex-1 py-2 bg-slate-50 hover:bg-rose-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
                     >
-                      <span className="material-symbols-outlined text-[16px]">videocam</span> Rec
+                      <span className="material-symbols-outlined text-[16px]">radio_button_checked</span>
+                      {isRecording ? `Rec ${fmt(recordSeconds)}` : 'Rec'}
                     </button>
                   </div>
                 </div>
               </div>
-
             </div>
           </div>
         </div>

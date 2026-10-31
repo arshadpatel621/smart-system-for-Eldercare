@@ -84,7 +84,7 @@ export async function findElderByElderId(elderId: string): Promise<AppUserProfil
           }
 
           let fullName = (resData.fullName as string) || 'Elder Resident';
-          let elderStatus: 'active' | 'inactive' | 'disabled' = (resData.status as any) || 'active';
+          let elderStatus: 'active' | 'inactive' | 'disabled' = (resData.status as 'active' | 'inactive' | 'disabled') || 'active';
           let email = '';
 
           // If the caller is already authorized to read users/{elderUid} (e.g. already linked or admin),
@@ -118,8 +118,8 @@ export async function findElderByElderId(elderId: string): Promise<AppUserProfil
           };
         }
       }
-    } catch (err: any) {
-      console.warn('[relationshipService] Direct lookup in elderIds failed:', err?.message || err);
+    } catch (err: unknown) {
+      console.warn('[relationshipService] Direct lookup in elderIds failed:', (err as Error)?.message || err);
     }
   }
 
@@ -329,9 +329,9 @@ export async function connectCaregiverToElder(
       message: `Successfully connected to ${elderProfile.fullName}!`,
       elderProfile,
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[relationshipService] Failed to establish relationship:', err);
-    const errMsg = err?.message || String(err);
+    const errMsg = (err as Error)?.message || String(err);
     if (errMsg.includes('permission') || errMsg.includes('PERMISSION_DENIED')) {
       return {
         success: false,

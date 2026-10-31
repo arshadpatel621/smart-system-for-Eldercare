@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -17,7 +17,7 @@ export default function CaregiverElders() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const loadElders = async () => {
+  const loadElders = useCallback(async () => {
     if (profile) {
       try {
         const elders = await getLinkedEldersForCaregiver(profile);
@@ -28,11 +28,11 @@ export default function CaregiverElders() {
         setLoading(false);
       }
     }
-  };
+  }, [profile]);
 
   useEffect(() => {
     void loadElders();
-  }, [profile]);
+  }, [loadElders]);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,8 +50,8 @@ export default function CaregiverElders() {
       } else {
         setFeedback({ type: 'error', message: res.message });
       }
-    } catch (err: any) {
-      setFeedback({ type: 'error', message: err?.message || 'Failed to connect to Elder.' });
+    } catch (err: unknown) {
+      setFeedback({ type: 'error', message: (err as Error)?.message || 'Failed to connect to Elder.' });
     } finally {
       setConnecting(false);
     }

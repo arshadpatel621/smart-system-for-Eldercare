@@ -59,8 +59,8 @@ export default function Login() {
     try {
       await resetPassword(forgotEmail.trim());
       setForgotStatus(`A password reset link has been sent to ${forgotEmail.trim()}. Check your inbox.`);
-    } catch (err: any) {
-      setForgotError(err.message || 'Failed to send password reset link.');
+    } catch (err: unknown) {
+      setForgotError((err as Error)?.message || 'Failed to send password reset link.');
     } finally {
       setResetSending(false);
     }
@@ -373,7 +373,7 @@ export default function Login() {
             </div>
 
             <p className="mt-8 text-center text-sm text-slate-500">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <Link to="/signup" className="font-bold text-blue-500 hover:text-blue-400 transition-colors">
                 Create Account
               </Link>
@@ -398,7 +398,7 @@ export default function Login() {
               </div>
 
               <p className="text-sm text-slate-400">
-                Enter your registered email address and we'll send you an official Firebase link to reset your password.
+                Enter your registered email address and we&apos;ll send you an official Firebase link to reset your password.
               </p>
 
               {forgotStatus && (

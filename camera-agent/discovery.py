@@ -50,7 +50,7 @@ WSD_PROBE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </soap:Envelope>"""
 
 # Candidate camera service ports to scan for IP reachability
-CANDIDATE_PORTS = [80, 81, 443, 554, 8000, 8080, 8081, 8443, 8554, 8899, 9000, 34567]
+CANDIDATE_PORTS = [80, 81, 443, 554, 5543, 8000, 8080, 8081, 8443, 8554, 8899, 9000, 34567]
 
 
 def check_icmp_ping(ip):
@@ -318,7 +318,7 @@ def probe_camera_detailed(ip, username, password, port=554, onvif_port=80, custo
 
     def scan_port_worker(p):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(0.6)
+        s.settimeout(1.5)
         try:
             s.connect((ip, p))
             s.close()
@@ -333,7 +333,7 @@ def probe_camera_detailed(ip, username, password, port=554, onvif_port=80, custo
         threads.append(t)
 
     for t in threads:
-        t.join(timeout=1.0)
+        t.join(timeout=2.0)
 
     open_ports = sorted(list(open_ports_set))
     icmp_ok = False
@@ -373,7 +373,7 @@ def probe_camera_detailed(ip, username, password, port=554, onvif_port=80, custo
 
     effective_rtsp_port = port
     if port not in open_ports and open_ports:
-        for preferred in [554, 8554, 8000]:
+        for preferred in [5543, 554, 8554, 8000]:
             if preferred in open_ports:
                 effective_rtsp_port = preferred
                 break
@@ -422,7 +422,7 @@ def probe_camera_detailed(ip, username, password, port=554, onvif_port=80, custo
         result["message"] = f"Host reachable (open ports: {', '.join(map(str, open_ports))}); ONVIF service not confirmed."
 
         # If custom RTSP path supplied or candidate RTSP port open, attempt RTSP test fallback
-        if custom_rtsp_path or effective_rtsp_port in [554, 8554, 8000]:
+        if custom_rtsp_path or effective_rtsp_port in [5543, 554, 8554, 8000]:
             stream_uri = f"rtsp://{ip}:{effective_rtsp_port}{custom_rtsp_path if custom_rtsp_path.startswith('/') else '/' + (custom_rtsp_path or 'live')}"
             stages["onvif_authentication"] = {"status": "skipped", "message": "ONVIF service not available"}
             stages["media_profile"] = {"status": "skipped", "message": "ONVIF service not available"}

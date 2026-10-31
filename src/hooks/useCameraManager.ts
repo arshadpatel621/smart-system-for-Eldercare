@@ -43,8 +43,8 @@ export function useCameraManager() {
     try {
       const list = await fetchCameras();
       setCameras(list);
-    } catch (err: any) {
-      setError(err.message ?? 'Failed to load cameras');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load cameras');
     } finally {
       setLoading(false);
     }
@@ -61,8 +61,9 @@ export function useCameraManager() {
       const created = await createCamera(input);
       setCameras((prev) => [...prev, created]);
       return true;
-    } catch (err: any) {
-      setError(err.message); return false;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to add camera');
+      return false;
     }
   };
 
@@ -72,8 +73,9 @@ export function useCameraManager() {
       const updated = await updateCamera(id, input);
       setCameras((prev) => prev.map((c) => (c.id === id ? updated : c)));
       return true;
-    } catch (err: any) {
-      setError(err.message); return false;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update camera');
+      return false;
     }
   };
 
@@ -84,8 +86,9 @@ export function useCameraManager() {
       await deleteCamera(id);
       setCameras((prev) => prev.filter((c) => c.id !== id));
       return true;
-    } catch (err: any) {
-      setError(err.message); return false;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete camera');
+      return false;
     } finally {
       setDeletingId(null);
     }
@@ -97,8 +100,8 @@ export function useCameraManager() {
     try {
       const updated = await toggleCamera(id, enabled);
       setCameras((prev) => prev.map((c) => (c.id === id ? updated : c)));
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle camera');
     } finally {
       setTogglingId(null);
     }
@@ -122,8 +125,9 @@ export function useCameraManager() {
         );
       }
       return result;
-    } catch (err: any) {
-      setError(err.message); return null;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Connection test failed');
+      return null;
     } finally {
       setTestingId(null);
     }

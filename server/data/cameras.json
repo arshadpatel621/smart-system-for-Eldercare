@@ -1,40 +1,27 @@
 {
   "cameras": [
     {
-      "id": "a84223f8-816b-4ba8-a613-de8e4ee9f101",
-      "name": "kjhv",
+      "id": "76bca16b-9691-416f-9467-31eac31e4e86",
+      "name": "living",
       "brand": "cpplus",
       "location": "living_room",
-      "ipAddress": "192.168.29.156",
-      "port": 554,
-      "onvifPort": 80,
+      "ipAddress": "192.168.1.12",
+      "port": 5543,
+      "onvifPort": 8000,
       "username": "admin",
-      "passwordEncrypted": "v+hr99QnCjdnqZ39D5E2aQ==:ZnT3pfzAUhRZor3CgRsV4g==",
-      "enabled": false,
-      "healthStatus": "offline",
-      "createdAt": "2026-10-15T19:08:14.426Z",
-      "updatedAt": "2026-10-15T20:06:46.940Z",
-      "model": "CP_Plus_Wi-Fi_camera",
-      "firmware": "1.0",
-      "serialNumber": "123456"
-    },
-    {
-      "id": "a5d7951b-a80f-4d92-9bc9-3377e832a410",
-      "name": "cp 45",
-      "brand": "cpplus",
-      "location": "living_room",
-      "ipAddress": "192.168.29.156",
-      "port": 554,
-      "onvifPort": 80,
-      "username": "admin",
-      "passwordEncrypted": "8dtUGP00E2wG2wOwFBlC8g==:xMGNtdXhUS9OscDLjXNl/Q==",
+      "passwordEncrypted": "NO8liuIvnnjYhUjPk0fWhg==:o/yinsLmdUava3JlGVrAuw==",
       "enabled": true,
-      "healthStatus": "offline",
-      "createdAt": "2026-10-15T20:06:39.661Z",
-      "updatedAt": "2026-10-15T20:08:08.635Z",
+      "discoveredRtspPath": "rtsp://192.168.1.12:5543/09009cbd9dc76737d7e64380b5612bd8/live/channel0",
       "model": "CP_Plus_Wi-Fi_camera",
       "firmware": "1.0",
-      "serialNumber": "123456"
+      "serialNumber": "123456",
+      "onvifVersion": "2.0",
+      "resolution": "2560x1440",
+      "fps": 20,
+      "healthStatus": "healthy",
+      "createdAt": "2026-10-31T16:52:46.958Z",
+      "updatedAt": "2026-10-31T17:00:15.687Z",
+      "lastConnected": "2026-10-31T17:00:15.685Z"
     }
   ]
 }

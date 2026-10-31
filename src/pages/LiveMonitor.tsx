@@ -21,7 +21,8 @@ export default function LiveMonitor() {
   // Plays a warning siren sound using browser-native synthesizer
   const playAlertSiren = useCallback(() => {
     try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioContextClass();
 
       // Tone 1
       const osc1 = audioCtx.createOscillator();
@@ -70,7 +71,8 @@ export default function LiveMonitor() {
         return acc;
       }, {} as Record<string, CameraStatusType>);
       setStatuses(statusMap);
-    } catch (err: any) {
+    } catch (err) {
+      console.error('[LiveMonitor] Failed to load cameras or statuses:', err);
       setError('Unable to contact backend server. Verify Express server is running on port 5000.');
     } finally {
       setLoading(false);
@@ -89,28 +91,35 @@ export default function LiveMonitor() {
 
       console.log('[AI REALTIME EVENT] Received alert:', eventDetails);
 
-      // Auto play notification sound
-      playAlertSiren();
+      const isCriticalAlert = eventDetails.type === 'fall' || eventDetails.type === 'fall_detected';
+      const isInactivityAlert = eventDetails.type === 'inactivity' || eventDetails.type === 'inactivity_detected';
+
+      // Auto play notification sound only for critical emergency events
+      if (isCriticalAlert) {
+        playAlertSiren();
+      }
 
       // Display alert banner locally
       setAiEvents((prev) => [
         {
           type: eventDetails.type,
           cameraId: eventDetails.cameraId,
-          timestamp: eventDetails.timestamp,
+          timestamp: eventDetails.timestamp || new Date().toISOString(),
         },
         ...prev.slice(0, 4),
       ]);
 
-      // Automatically register the event in Firestore (persisted database)
-      void createSafetyEvent({
-        type: eventDetails.type === 'fall' ? 'fall' : 'inactivity',
-        severity: eventDetails.type === 'fall' ? 'critical' : 'warning',
-        occurredAt: eventDetails.timestamp,
-        location: eventDetails.cameraId,
-        note: `Real-time AI Notification: ${eventDetails.type.toUpperCase()} alert triggered automatically.`,
-        resolved: false,
-      });
+      // Automatically register the event in Firestore (persisted database) for safety incidents
+      if (isCriticalAlert || isInactivityAlert) {
+        void createSafetyEvent({
+          type: isCriticalAlert ? 'fall' : 'inactivity',
+          severity: isCriticalAlert ? 'critical' : 'warning',
+          occurredAt: eventDetails.timestamp || new Date().toISOString(),
+          location: eventDetails.cameraId,
+          note: `Real-time AI Notification: ${eventDetails.type.toUpperCase()} alert triggered automatically.`,
+          resolved: false,
+        });
+      }
     };
 
     window.addEventListener('eldercare-camera-alert', handleCameraAlert);

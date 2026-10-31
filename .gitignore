@@ -2,3 +2,19 @@ node_modules/
 dist/
 .env
 .expo/
+
+# Python Virtual Environments
+.venv/
+camera-agent/.venv/
+venv/
+ENV/
+
+# Python Caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# YOLO Pretrained Weights
+*.pt
+camera-agent/models/*.pt
+yolo*.pt

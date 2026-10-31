@@ -18,6 +18,8 @@
 import { spawn, ChildProcess } from 'child_process';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import type {
   CameraRecord,
   CameraStatus,
@@ -54,16 +56,28 @@ function log(level: 'info' | 'warn' | 'error', camId: string, msg: string, detai
  * Strips sensitive fields and returns a safe public record for the frontend.
  * Passwords, RTSP URLs, and encrypted values are NEVER exposed.
  */
-function toPublic(record: CameraRecord): CameraPublicRecord {
-  const {
-    passwordEncrypted: _pw,
-    rtspUrlEncrypted: _rtsp,
-    discoveredRtspPath: _path,
-    ...rest
-  } = record;
+export function toPublic(record: CameraRecord): CameraPublicRecord {
   return {
-    ...rest,
+    id: record.id,
+    name: record.name,
+    brand: record.brand,
+    location: record.location,
+    ipAddress: record.ipAddress,
+    port: record.port,
+    onvifPort: record.onvifPort,
+    username: record.username,
     hasCustomRtspPath: !!record.rtspUrlEncrypted,
+    enabled: record.enabled,
+    model: record.model,
+    firmware: record.firmware,
+    serialNumber: record.serialNumber,
+    onvifVersion: record.onvifVersion,
+    resolution: record.resolution,
+    fps: record.fps,
+    lastConnected: record.lastConnected,
+    healthStatus: record.healthStatus,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
   };
 }
 
@@ -188,6 +202,21 @@ export class CameraService {
 
   async deleteCamera(id: string): Promise<void> {
     this.stopStream(id);
+
+    const listeners = this.listeners.get(id);
+    if (listeners) {
+      for (const res of listeners) {
+        if (!res.writableEnded) {
+          try {
+            res.end();
+          } catch {
+            // ignore
+          }
+        }
+      }
+      listeners.clear();
+    }
+
     await this.repo.delete(id);
 
     this.listeners.delete(id);
@@ -195,6 +224,21 @@ export class CameraService {
     this.reconnectAttempts.delete(id);
 
     log('info', id, 'Camera deleted');
+
+    // Notify connected WebSocket clients of removal
+    this.onStatusChangeCb?.({
+      id,
+      name: '',
+      location: 'other',
+      brand: 'onvif',
+      status: 'OFFLINE',
+      ipAddress: '',
+      resolution: 'N/A',
+      fps: 0,
+      connectionTime: null,
+      reconnectAttempts: 0,
+      error: 'Camera removed',
+    });
   }
 
   async toggleCamera(id: string, enabled: boolean): Promise<CameraPublicRecord> {
@@ -249,22 +293,22 @@ export class CameraService {
       record.onvifPort,
       record.username,
       password,
-      customRtspPath
+      customRtspPath || record.discoveredRtspPath
     );
 
-    if (result.success || result.onvifAvailable) {
-      await this.repo.updateMetadata(id, {
-        model: result.model,
-        firmware: result.firmware,
-        serialNumber: result.serialNumber,
-        onvifVersion: result.onvifVersion,
-        discoveredRtspPath: result.discoveredRtspPath,
-        resolution: result.resolution,
-        fps: result.fps,
-        lastConnected: result.success ? result.testedAt : undefined,
-        healthStatus: result.success ? 'healthy' : 'offline',
-      });
-    }
+    await this.repo.updateMetadata(id, {
+      model: result.model ?? record.model,
+      firmware: result.firmware ?? record.firmware,
+      serialNumber: result.serialNumber ?? record.serialNumber,
+      onvifVersion: result.onvifVersion ?? record.onvifVersion,
+      discoveredRtspPath: result.discoveredRtspPath ?? record.discoveredRtspPath,
+      resolution: result.resolution ?? record.resolution,
+      fps: result.fps ?? record.fps,
+      port: result.detectedRtspPort ?? record.port,
+      onvifPort: result.detectedOnvifPort ?? record.onvifPort,
+      lastConnected: result.success ? result.testedAt : record.lastConnected,
+      healthStatus: result.success ? 'healthy' : result.authError ? 'degraded' : 'offline',
+    });
 
     log(
       'info',
@@ -359,9 +403,13 @@ export class CameraService {
     this.clearTimer(record.id, 'idle');
     this.clearTimer(record.id, 'reconnect');
 
-    const isWorkingCamera = record.ipAddress === '172.30.58.96' && record.port === 5543;
-    const password = isWorkingCamera ? '' : getDecryptedPassword(record);
-    const customRtspPath = isWorkingCamera ? '/live/channel1' : getDecryptedRtspPath(record);
+    let password = '';
+    try {
+      password = getDecryptedPassword(record);
+    } catch {
+      password = '';
+    }
+    const customRtspPath = getDecryptedRtspPath(record);
     const profile = getBrandProfile(record.brand);
 
     let ffmpegArgs: string[];
@@ -379,11 +427,17 @@ export class CameraService {
       ];
     } else {
       const rtspPath =
-        customRtspPath ??
         record.discoveredRtspPath ??
+        customRtspPath ??
         resolveRtspPath(profile.rtspPathTemplates[0], 1);
 
-      const rtspUrl = isWorkingCamera ? `rtsp://${record.ipAddress}:${record.port}${rtspPath}` : buildRtspUrl(record.ipAddress, record.port, record.username, password, rtspPath);
+      const rtspUrl = buildRtspUrl(
+        record.ipAddress,
+        record.port,
+        record.username,
+        password,
+        rtspPath
+      );
 
       const redacted = buildRedactedRtspUrl(
         record.ipAddress,
@@ -396,10 +450,16 @@ export class CameraService {
 
       ffmpegArgs = [
         '-rtsp_transport', 'tcp',
+        '-stimeout', '3000000',
+        '-avoid_negative_ts', 'make_zero',
+        '-fflags', '+genpts+nobuffer+discardcorrupt',
+        '-flags', '+low_delay',
+        '-probesize', '32',
+        '-analyzeduration', '0',
         '-i', rtspUrl,
+        '-vf', 'fps=fps=12',
         '-f', 'mpjpeg',
-        '-q:v', '5',
-        '-r', '15',
+        '-q:v', '7',
         '-boundary_tag', 'ffmpegboundary',
         '-',
       ];
@@ -428,20 +488,43 @@ export class CameraService {
       const st = this.statuses.get(record.id);
 
       if (st?.status !== 'ONLINE') {
+        const nowTs = new Date().toISOString();
         this.updateStatus(
           record.id,
           'ONLINE',
           undefined,
-          new Date().toISOString()
+          nowTs
         );
 
         this.reconnectAttempts.set(record.id, 0);
+        void this.repo.updateMetadata(record.id, {
+          healthStatus: 'healthy',
+          lastConnected: nowTs,
+        }).catch(() => {});
       }
     });
+
+    let lastError: string | undefined;
 
     proc.stderr.on('data', (chunk: Buffer) => {
       const output = chunk.toString();
       const st = this.statuses.get(record.id);
+
+      if (output.includes('401 Unauthorized')) {
+        lastError = 'Authentication failed — invalid camera credentials';
+      } else if (output.includes('Connection refused') || output.includes('10061')) {
+        lastError = 'Connection refused — camera port is closed or offline';
+      } else if (
+        output.includes('Connection timed out') ||
+        output.includes('10060') ||
+        output.includes('No route to host')
+      ) {
+        lastError = 'Connection timed out — camera IP is unreachable on current network';
+      } else if (output.includes('404 Not Found') || output.includes('Stream not found')) {
+        lastError = 'RTSP stream path not found on camera';
+      } else if (output.includes('method DESCRIBE failed')) {
+        lastError = 'Camera rejected RTSP DESCRIBE request';
+      }
 
       if (!st) return;
 
@@ -477,7 +560,18 @@ export class CameraService {
 
       const st = this.statuses.get(record.id);
 
-      if (st && st.status !== 'OFFLINE' && st.status !== 'ERROR') {
+      // If credentials failed, do not retry in an aggressive loop to prevent camera lockout
+      if (lastError && lastError.includes('Authentication failed')) {
+        log('error', record.id, 'Authentication error — aborting auto-reconnect to avoid device lockout');
+        this.updateStatus(record.id, 'ERROR', lastError);
+        void this.repo.updateMetadata(record.id, { healthStatus: 'degraded' }).catch(() => {});
+        return;
+      }
+
+      if (st && st.status !== 'OFFLINE') {
+        if (code !== 0) {
+          this.updateStatus(record.id, 'ERROR', lastError || `Stream closed (code ${code})`);
+        }
         this.scheduleReconnect(record);
       }
     });
@@ -514,6 +608,14 @@ export class CameraService {
     const attempts = (this.reconnectAttempts.get(record.id) ?? 0) + 1;
     this.reconnectAttempts.set(record.id, attempts);
 
+    if (attempts > 5) {
+      const errorMsg = 'Camera unreachable — streaming failed after 5 reconnection attempts';
+      log('error', record.id, errorMsg);
+      this.updateStatus(record.id, 'ERROR', errorMsg);
+      void this.repo.updateMetadata(record.id, { healthStatus: 'offline' }).catch(() => {});
+      return;
+    }
+
     const delay = Math.min(Math.pow(2, attempts) * 1000, 30000);
 
     log(
@@ -525,7 +627,7 @@ export class CameraService {
     this.updateStatus(
       record.id,
       'CONNECTING',
-      `Reconnecting... attempt ${attempts} (in ${delay / 1000}s)`
+      `Reconnecting... attempt ${attempts} of 5 (in ${delay / 1000}s)`
     );
 
     const t = setTimeout(async () => {
@@ -631,19 +733,59 @@ export class CameraService {
    * Returns stream info for AI consumers.
    * AI services can READ this information but NEVER write back to the camera.
    */
-  async getAIStreamConsumer(id: string): Promise<AIStreamConsumer> {
-    const status = this.statuses.get(id);
+  async getAIStreamConsumer(
+    id: string,
+    isInternal: boolean = false
+  ): Promise<AIStreamConsumer> {
+    let status = this.statuses.get(id);
+    const record = await this.repo.findById(id);
 
-    if (!status) throw new Error(`Camera not found: ${id}`);
+    if (!record) throw new Error(`Camera not found: ${id}`);
+
+    if (!status) {
+      status = this.buildStatus(record, 'OFFLINE');
+      this.statuses.set(id, status);
+    }
 
     const apiBase = process.env.API_BASE_URL ?? 'http://localhost:5000';
 
+    let directRtspUrl: string | undefined;
+
+    // Direct RTSP is provided ONLY internally to local/authenticated agent processes
+    if (isInternal) {
+      let password = '';
+      try {
+        password = getDecryptedPassword(record);
+      } catch {
+        password = '';
+      }
+      const customRtspPath = getDecryptedRtspPath(record);
+      const profile = getBrandProfile(record.brand);
+      const rtspPath =
+        customRtspPath ??
+        record.discoveredRtspPath ??
+        resolveRtspPath(profile.rtspPathTemplates[0], 1);
+
+      directRtspUrl = buildRtspUrl(
+        record.ipAddress,
+        record.port,
+        record.username,
+        password,
+        rtspPath
+      );
+    }
+
     return {
       cameraId: id,
+      name: record.name,
+      brand: record.brand,
+      location: record.location,
+      status: status.status,
       streamEndpoint: `${apiBase}/api/cameras/${id}/stream`,
       websocketEndpoint: apiBase.replace(/^http/, 'ws'),
       frameRate: status.fps ?? 15,
       resolution: status.resolution ?? 'unknown',
+      ...(directRtspUrl ? { directRtspUrl } : {}),
     };
   }
 
@@ -701,5 +843,102 @@ export class CameraService {
       clearTimeout(t);
       this.timers.delete(key);
     }
+  }
+
+  // ─── Snapshot ──────────────────────────────────────────────────────────────
+
+  /**
+   * Captures a single JPEG frame from the live RTSP stream using FFmpeg.
+   * Saves to server/data/snapshots/<cameraId>-<timestamp>.jpg
+   */
+  async takeSnapshot(id: string): Promise<{ message: string; path: string }> {
+    const record = await this.repo.findById(id);
+    if (!record) throw new Error(`Camera not found: ${id}`);
+
+    const snapshotDir = path.resolve(__dirname, '..', 'data', 'snapshots');
+    if (!fs.existsSync(snapshotDir)) fs.mkdirSync(snapshotDir, { recursive: true });
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const outFile = path.join(snapshotDir, `${id}-${ts}.jpg`);
+
+    if (record.ipAddress === 'mock' || record.ipAddress === '0.0.0.0') {
+      log('info', id, `Snapshot simulated: ${outFile}`);
+      return { message: 'Snapshot captured (simulated)', path: outFile };
+    }
+
+    let password = '';
+    try { password = getDecryptedPassword(record); } catch { password = ''; }
+    const customPath = getDecryptedRtspPath(record);
+    const profile = getBrandProfile(record.brand);
+    const rtspPath = record.discoveredRtspPath ?? customPath ?? resolveRtspPath(profile.rtspPathTemplates[0], 1);
+    const rtspUrl = buildRtspUrl(record.ipAddress, record.port, record.username, password, rtspPath);
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(ffmpegInstaller.path, [
+        '-rtsp_transport', 'tcp',
+        '-stimeout', '3000000',
+        '-i', rtspUrl,
+        '-vframes', '1',
+        '-q:v', '2',
+        '-y', outFile,
+      ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+      const timer = setTimeout(() => { proc.kill(); reject(new Error('Snapshot timed out')); }, 10000);
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0 || fs.existsSync(outFile)) resolve();
+        else reject(new Error(`Snapshot FFmpeg exited with code ${code}`));
+      });
+      proc.on('error', (err) => { clearTimeout(timer); reject(err); });
+    });
+
+    log('info', id, `Snapshot saved: ${outFile}`);
+    return { message: 'Snapshot saved', path: outFile };
+  }
+
+  // ─── Recording ─────────────────────────────────────────────────────────────
+
+  /**
+   * Starts a server-side FFmpeg recording for the given duration (seconds).
+   * Non-blocking — fires the FFmpeg process and returns immediately.
+   * Saves to server/data/recordings/<cameraId>-<timestamp>.mp4
+   */
+  async startRecording(id: string, duration = 30): Promise<{ message: string; file: string }> {
+    const record = await this.repo.findById(id);
+    if (!record) throw new Error(`Camera not found: ${id}`);
+
+    const recDir = path.resolve(__dirname, '..', 'data', 'recordings');
+    if (!fs.existsSync(recDir)) fs.mkdirSync(recDir, { recursive: true });
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const outFile = path.join(recDir, `${id}-${ts}.mp4`);
+
+    if (record.ipAddress === 'mock' || record.ipAddress === '0.0.0.0') {
+      log('info', id, `Recording simulated for ${duration}s: ${outFile}`);
+      return { message: `Recording started for ${duration}s (simulated)`, file: path.basename(outFile) };
+    }
+
+    let password = '';
+    try { password = getDecryptedPassword(record); } catch { password = ''; }
+    const customPath = getDecryptedRtspPath(record);
+    const profile = getBrandProfile(record.brand);
+    const rtspPath = record.discoveredRtspPath ?? customPath ?? resolveRtspPath(profile.rtspPathTemplates[0], 1);
+    const rtspUrl = buildRtspUrl(record.ipAddress, record.port, record.username, password, rtspPath);
+
+    const proc = spawn(ffmpegInstaller.path, [
+      '-rtsp_transport', 'tcp',
+      '-stimeout', '3000000',
+      '-t', String(duration),
+      '-i', rtspUrl,
+      '-c:v', 'copy',
+      '-an',
+      '-y', outFile,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+
+    proc.on('close', (code) => log('info', id, `Recording done (code ${code}): ${outFile}`));
+    proc.on('error', (err) => log('error', id, 'Recording error', err.message));
+
+    log('info', id, `Recording started for ${duration}s → ${outFile}`);
+    return { message: `Recording started for ${duration}s`, file: path.basename(outFile) };
   }
 }

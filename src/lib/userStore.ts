@@ -214,8 +214,8 @@ export async function reserveElderIdAtomic(
 
       reserved = true;
       writeCachedProfile(currentProfile);
-    } catch (err: any) {
-      if (err?.message === 'COLLISION') {
+    } catch (err: unknown) {
+      if ((err as Error)?.message === 'COLLISION') {
         let newId = 'ELD-';
         for (let i = 0; i < 6; i++) {
           newId += chars.charAt(Math.floor(Math.random() * chars.length));

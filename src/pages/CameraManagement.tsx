@@ -123,10 +123,14 @@ function ProbePanel({ result, onClose }: { result: ProbeResult; onClose: () => v
   );
 }
 
+interface FormModalInitial extends CreateCameraInput {
+  __isEdit?: boolean;
+}
+
 function CameraFormModal({
   initial, onSave, onClose, saving,
 }: {
-  initial: CreateCameraInput;
+  initial: FormModalInitial;
   onSave: (data: CreateCameraInput) => Promise<void>;
   onClose: () => void;
   saving: boolean;
@@ -136,9 +140,9 @@ function CameraFormModal({
   const [testing, setTesting] = useState(false);
   const [detectResult, setDetectResult] = useState<AgentDetectResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
-  const isEdit = !!(initial as any).__isEdit;
+  const isEdit = !!initial.__isEdit;
 
-  const field = (key: keyof CreateCameraInput, value: any) =>
+  const field = (key: keyof CreateCameraInput, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }));
 
   const labelCls = 'block text-xs font-bold text-slate-600 mb-1 uppercase tracking-wider';
@@ -163,6 +167,20 @@ function CameraFormModal({
 
       const openPorts = (probeRes.portsScanned || []).filter((p) => p.open).map((p) => p.port);
       const isReachable = openPorts.length > 0;
+
+      // Automatically populate discovered metadata and ports into form
+      setForm((prev) => ({
+        ...prev,
+        discoveredRtspPath: probeRes.discoveredRtspPath ?? prev.discoveredRtspPath,
+        model: probeRes.model ?? prev.model,
+        firmware: probeRes.firmware ?? prev.firmware,
+        serialNumber: probeRes.serialNumber ?? prev.serialNumber,
+        onvifVersion: probeRes.onvifVersion ?? prev.onvifVersion,
+        resolution: probeRes.resolution ?? prev.resolution,
+        fps: probeRes.fps ?? prev.fps,
+        port: probeRes.detectedRtspPort ?? (probeRes.rtspAvailable ? (prev.port ?? 554) : prev.port),
+        onvifPort: probeRes.detectedOnvifPort ?? (probeRes.onvifAvailable ? (prev.onvifPort ?? 80) : prev.onvifPort),
+      }));
 
       const agentResult: AgentDetectResult = {
         success: probeRes.success,
@@ -191,14 +209,14 @@ function CameraFormModal({
           ip_reachability: {
             status: isReachable ? 'success' : 'failed',
             message: isReachable
-              ? `Host reachable on Wi-Fi (Open ports: ${openPorts.join(', ')})`
-              : 'Camera is not reachable at this IP address.',
+              ? `Host reachable on network (Open ports: ${openPorts.join(', ')})`
+              : 'Camera is not reachable at this IP address. Check network connection.',
           },
           onvif_detection: {
             status: probeRes.onvifAvailable ? 'success' : 'failed',
             message: probeRes.onvifAvailable
               ? `ONVIF service responding (${probeRes.manufacturer || 'Camera'})`
-              : 'ONVIF port closed or disabled. Enable in Ezykam+ app.',
+              : 'ONVIF port closed or disabled. Enable in camera mobile app.',
           },
           onvif_authentication: {
             status: probeRes.authError
@@ -207,33 +225,40 @@ function CameraFormModal({
               ? 'success'
               : 'not_run',
             message: probeRes.authError
-              ? 'Authentication failed — check ONVIF password in camera app.'
+              ? 'Authentication failed — verify camera username/password.'
               : 'Authentication passed.',
           },
           media_profile: {
             status: probeRes.discoveredRtspPath ? 'success' : 'skipped',
             message: probeRes.discoveredRtspPath
-              ? `Stream path: ${probeRes.discoveredRtspPath}`
-              : 'No ONVIF media path resolved.',
+              ? `Stream path discovered: ${probeRes.discoveredRtspPath}`
+              : 'No ONVIF media profile resolved automatically.',
           },
           rtsp_detection: {
-            status: openPorts.includes(554) || openPorts.includes(8554) ? 'success' : 'failed',
+            status:
+              (probeRes.detectedRtspPort && openPorts.includes(probeRes.detectedRtspPort)) ||
+              openPorts.includes(554) ||
+              openPorts.includes(8554)
+                ? 'success'
+                : 'failed',
             message:
-              openPorts.includes(554) || openPorts.includes(8554)
-                ? 'RTSP stream port 554 is open.'
-                : 'RTSP port 554 is closed. Ensure ONVIF is enabled in app.',
+              (probeRes.detectedRtspPort && openPorts.includes(probeRes.detectedRtspPort)) ||
+              openPorts.includes(554) ||
+              openPorts.includes(8554)
+                ? `RTSP stream port is open (${probeRes.detectedRtspPort ?? (openPorts.includes(554) ? 554 : 8554)}).`
+                : 'RTSP port 554/8554 closed. Check camera settings.',
           },
           rtsp_test: {
             status: probeRes.rtspAvailable ? 'success' : 'failed',
             message: probeRes.rtspAvailable
               ? `Live stream verified (${probeRes.resolution || '720p/1080p'}, ${probeRes.fps || 15} fps)`
-              : probeRes.errorMessage || 'RTSP handshake failed.',
+              : probeRes.errorMessage || 'RTSP stream handshake failed.',
           },
         },
       };
 
       setDetectResult(agentResult);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Fallback to local python agent if configured
       try {
         const res = await detectCameraViaAgent({
@@ -246,7 +271,8 @@ function CameraFormModal({
         });
         setDetectResult(res);
       } catch {
-        setTestError(err.message ?? 'Camera server request failed. Ensure camera server is running on port 5000.');
+        const errMessage = err instanceof Error ? err.message : 'Camera connection test failed.';
+        setTestError(errMessage);
       }
     } finally {
       setTesting(false);
@@ -265,7 +291,7 @@ function CameraFormModal({
             </button>
           </div>
           <p className="text-blue-100 text-sm mt-1">
-            {isEdit ? 'Update camera configuration.' : 'Enter camera details and test connection via Local Agent.'}
+            {isEdit ? 'Update camera configuration.' : 'Enter camera details and test connection.'}
           </p>
         </div>
 
@@ -304,7 +330,7 @@ function CameraFormModal({
                 <ul className="list-disc list-inside space-y-1 text-[11px] text-blue-800">
                   <li><strong>1. Enable ONVIF in App:</strong> Open <em>Ezykam+ app</em> ➔ Camera Settings ⚙️ ➔ <em>PC View / ONVIF</em> ➔ Turn ON.</li>
                   <li><strong>2. Set Password:</strong> Set your ONVIF/PC View password in the app and type it below (Username is usually <code>admin</code>).</li>
-                  <li><strong>3. IP & Port:</strong> Use the camera IP on your Wi-Fi (e.g. <code>192.168.29.156</code>). RTSP Port is <code>554</code>, ONVIF Port is <code>8899</code> or <code>80</code>.</li>
+                  <li><strong>3. IP & Port:</strong> Use your camera&apos;s IP address (e.g. <code>192.168.1.50</code>). RTSP Port is <code>554</code>, ONVIF Port is <code>8899</code> or <code>80</code>.</li>
                 </ul>
               </div>
             )}
@@ -312,7 +338,7 @@ function CameraFormModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>IP Address *</label>
-                <input className={inputCls} placeholder="e.g. 192.168.29.156" value={form.ipAddress}
+                <input className={inputCls} placeholder="e.g. 192.168.1.50" value={form.ipAddress}
                   onChange={(e) => field('ipAddress', e.target.value)} />
               </div>
               <div>
@@ -453,70 +479,72 @@ function Toggle({ checked, loading, onChange }: { checked: boolean; loading: boo
   );
 }
 
-function CameraDiscoveryTab({ agentStatus, onAddClick }: { agentStatus: 'checking' | 'online' | 'offline'; onAddClick: (ip?: string) => void }) {
+function CameraDiscoveryTab({
+  agentStatus,
+  onAddClick,
+}: {
+  agentStatus: 'checking' | 'online' | 'offline';
+  onAddClick: (ip?: string, onvifPort?: number, discoveredRtspPath?: string) => void;
+}) {
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<DiscoveredCamera[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [scanned, setScanned] = useState(false);
 
   const startScan = async () => {
-    setScanning(true); setError(null); setResults([]); setScanned(false);
+    setScanning(true);
+    setError(null);
+    setResults([]);
+    setScanned(false);
     try {
       const devices = await discoverCamerasOnLAN();
       setResults(devices);
-    } catch (err: any) {
-      setError(err.message ?? 'Discovery failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Discovery failed');
     } finally {
-      setScanning(false); setScanned(true);
+      setScanning(false);
+      setScanned(true);
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {agentStatus === 'offline' ? (
-        <div className="rounded-3xl border border-rose-200 bg-rose-50/80 p-8 text-center space-y-4">
-          <div className="w-16 h-16 rounded-2xl bg-rose-100 flex items-center justify-center mx-auto text-rose-600">
-            <span className="material-symbols-outlined text-3xl">lan_disconnect</span>
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-rose-900">VitalCare Camera Agent is not running.</h3>
-            <p className="text-sm text-rose-700 mt-1 max-w-md mx-auto">
-              ONVIF WS-Discovery uses UDP multicast and requires the local agent to run on your local network.
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl border border-rose-200 p-4 max-w-lg mx-auto text-left space-y-2 shadow-sm">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Start Local Camera Agent:</span>
-            <code className="block bg-slate-900 text-emerald-400 font-mono text-xs p-3 rounded-xl">
-              python camera-agent/agent.py
-            </code>
-          </div>
+      <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-blue-50 p-8 text-center space-y-5">
+        <div className="w-20 h-20 rounded-3xl bg-white shadow-md flex items-center justify-center mx-auto">
+          <span className={`material-symbols-outlined text-4xl text-blue-600 ${scanning ? 'animate-pulse' : ''}`}>
+            wifi_find
+          </span>
         </div>
-      ) : (
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-50 to-blue-50 p-8 text-center space-y-5">
-          <div className="w-20 h-20 rounded-3xl bg-white shadow-md flex items-center justify-center mx-auto">
-            <span className={`material-symbols-outlined text-4xl text-blue-600 ${scanning ? 'animate-pulse' : ''}`}>
-              wifi_find
-            </span>
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">
-              {scanning ? 'Scanning network via Local Agent...' : 'Scan LAN for ONVIF Cameras'}
-            </h2>
-            <p className="text-slate-500 text-sm mt-1">
-              Sends a UDP multicast WS-Discovery probe (239.255.255.250:3702) via <code>http://127.0.0.1:8000</code>
-            </p>
-          </div>
-          <button
-            onClick={() => void startScan()}
-            disabled={scanning}
-            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-8 py-3.5 text-base font-bold text-white shadow-lg hover:bg-blue-700 disabled:opacity-60 transition-all">
-            {scanning
-              ? <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
-              : <span className="material-symbols-outlined text-xl">radar</span>}
-            {scanning ? 'Scanning...' : 'Start Network Scan'}
-          </button>
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">
+            {scanning ? 'Scanning LAN for ONVIF Cameras...' : 'Scan LAN for ONVIF Cameras'}
+          </h2>
+          <p className="text-slate-500 text-sm mt-1 max-w-lg mx-auto">
+            Sends an ONVIF WS-Discovery probe across your local subnet (UDP 239.255.255.250:3702).
+            {agentStatus === 'online' ? (
+              <span className="text-emerald-700 font-semibold block mt-1">
+                ✓ VitalCare Local Camera Agent active on 127.0.0.1:8000
+              </span>
+            ) : (
+              <span className="text-blue-700 font-semibold block mt-1">
+                ℹ Running discovery directly via Express backend ONVIF service
+              </span>
+            )}
+          </p>
         </div>
-      )}
+        <button
+          onClick={() => void startScan()}
+          disabled={scanning}
+          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-8 py-3.5 text-base font-bold text-white shadow-lg hover:bg-blue-700 disabled:opacity-60 transition-all"
+        >
+          {scanning ? (
+            <span className="material-symbols-outlined animate-spin text-xl">progress_activity</span>
+          ) : (
+            <span className="material-symbols-outlined text-xl">radar</span>
+          )}
+          {scanning ? 'Scanning...' : 'Start Network Scan'}
+        </button>
+      </div>
 
       {error && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 flex items-center gap-3">
@@ -543,7 +571,7 @@ function CameraDiscoveryTab({ agentStatus, onAddClick }: { agentStatus: 'checkin
               <span className="material-symbols-outlined text-4xl text-slate-300 block mb-3">signal_wifi_off</span>
               <p className="text-slate-500 font-semibold">No ONVIF cameras responded to multicast probe</p>
               <p className="text-slate-400 text-sm mt-2 max-w-md mx-auto">
-                Ensure cameras are connected to your local network. You can also add a camera manually using its IP address.
+                Ensure cameras are connected to your local network and ONVIF is enabled in their settings. You can also add a camera manually using its IP address.
               </p>
             </div>
           ) : (
@@ -557,7 +585,7 @@ function CameraDiscoveryTab({ agentStatus, onAddClick }: { agentStatus: 'checkin
                     </div>
                     <div>
                       <p className="font-bold text-slate-800">{device.ipAddress}</p>
-                      <p className="text-xs text-slate-500">ONVIF Device Service</p>
+                      <p className="text-xs text-slate-500">{device.manufacturer || 'ONVIF Device Service'}</p>
                     </div>
                   </div>
 
@@ -572,8 +600,10 @@ function CameraDiscoveryTab({ agentStatus, onAddClick }: { agentStatus: 'checkin
                     </div>
                   </div>
 
-                  <button onClick={() => onAddClick(device.ipAddress)}
-                    className="flex items-center justify-center gap-2 w-full rounded-xl border border-blue-200 bg-blue-50 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors">
+                  <button
+                    onClick={() => onAddClick(device.ipAddress, device.onvifPort, device.discoveredRtspPath)}
+                    className="flex items-center justify-center gap-2 w-full rounded-xl border border-blue-200 bg-blue-50 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                  >
                     <span className="material-symbols-outlined text-sm">add_circle</span>
                     Connect Camera
                   </button>
@@ -587,12 +617,12 @@ function CameraDiscoveryTab({ agentStatus, onAddClick }: { agentStatus: 'checkin
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 space-y-2">
         <h3 className="font-bold text-amber-800 flex items-center gap-2">
           <span className="material-symbols-outlined text-sm">tips_and_updates</span>
-          Troubleshooting Tips
+          Troubleshooting & Network Limitations
         </h3>
         <ul className="text-sm text-amber-700 space-y-1 list-disc list-inside">
-          <li>Ensure Local Camera Agent is running: <code>python camera-agent/agent.py</code></li>
-          <li>Ensure cameras are on the same local subnet as the agent</li>
-          <li>If automatic scan misses a camera, click "+ Add Camera Manually" to test its IP address directly</li>
+          <li><strong>Wi-Fi Client Isolation:</strong> Many guest Wi-Fi networks block device-to-device communication. Ensure your computer and cameras are on the main Wi-Fi network without AP isolation.</li>
+          <li><strong>Multicast Traffic:</strong> WS-Discovery relies on UDP multicast (239.255.255.250:3702). If multicast is blocked by your router, use <em>+ Add Camera Manually</em> to connect directly by IP.</li>
+          <li><strong>Remote / Cloud Access:</strong> If the server is deployed to the cloud, it cannot directly reach LAN cameras without a VPN or local camera agent tunnel.</li>
         </ul>
       </div>
     </div>
@@ -610,14 +640,20 @@ export default function CameraManagement() {
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<CameraPublicRecord | null>(null);
   const [initialIp, setInitialIp] = useState<string>('');
+  const [initialPorts, setInitialPorts] = useState<{ onvifPort?: number; discoveredRtspPath?: string }>({});
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [probeTargetId, setProbeTargetId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'cameras' | 'discover'>('cameras');
 
-  const openAdd = (ip: string = '') => { setEditTarget(null); setInitialIp(ip); setShowModal(true); };
+  const openAdd = (ip: string = '', onvifPort?: number, discoveredRtspPath?: string) => {
+    setEditTarget(null);
+    setInitialIp(ip);
+    setInitialPorts({ onvifPort, discoveredRtspPath });
+    setShowModal(true);
+  };
   const openEdit = (cam: CameraPublicRecord) => { setEditTarget(cam); setShowModal(true); };
-  const closeModal = () => { setShowModal(false); setEditTarget(null); };
+  const closeModal = () => { setShowModal(false); setEditTarget(null); setInitialPorts({}); };
 
   const handleSave = async (data: CreateCameraInput) => {
     setSaving(true);
@@ -705,12 +741,12 @@ export default function CameraManagement() {
       {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200 pb-px">
         {[
-          { id: 'cameras', label: 'Cameras', icon: 'videocam' },
-          { id: 'discover', label: 'Discover Cameras', icon: 'wifi_find' },
+          { id: 'cameras' as const, label: 'Cameras', icon: 'videocam' },
+          { id: 'discover' as const, label: 'Discover Cameras', icon: 'wifi_find' },
         ].map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`px-6 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
               activeTab === tab.id
                 ? 'border-blue-600 text-blue-600'
@@ -724,7 +760,10 @@ export default function CameraManagement() {
       </div>
 
       {activeTab === 'discover' && (
-        <CameraDiscoveryTab agentStatus={agentStatus} onAddClick={(ip) => openAdd(ip || '')} />
+        <CameraDiscoveryTab
+          agentStatus={agentStatus}
+          onAddClick={(ip, onvifPort, discoveredRtspPath) => openAdd(ip || '', onvifPort, discoveredRtspPath)}
+        />
       )}
 
       {activeTab === 'cameras' && (
@@ -832,7 +871,34 @@ export default function CameraManagement() {
 
       {showModal && (
         <CameraFormModal
-          initial={editTarget ? { ...editTarget, password: '', __isEdit: true } as any : { ...emptyForm(), ipAddress: initialIp }}
+          initial={
+            editTarget
+              ? {
+                  name: editTarget.name,
+                  brand: editTarget.brand,
+                  location: editTarget.location,
+                  ipAddress: editTarget.ipAddress,
+                  port: editTarget.port,
+                  onvifPort: editTarget.onvifPort,
+                  username: editTarget.username,
+                  password: '',
+                  model: editTarget.model,
+                  firmware: editTarget.firmware,
+                  serialNumber: editTarget.serialNumber,
+                  onvifVersion: editTarget.onvifVersion,
+                  resolution: editTarget.resolution,
+                  fps: editTarget.fps,
+                  healthStatus: editTarget.healthStatus,
+                  enabled: editTarget.enabled,
+                  __isEdit: true,
+                }
+              : {
+                  ...emptyForm(),
+                  ipAddress: initialIp,
+                  onvifPort: initialPorts.onvifPort ?? 80,
+                  discoveredRtspPath: initialPorts.discoveredRtspPath,
+                }
+          }
           onSave={handleSave}
           onClose={closeModal}
           saving={saving}

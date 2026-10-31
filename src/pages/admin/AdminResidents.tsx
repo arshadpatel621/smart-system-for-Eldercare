@@ -22,7 +22,9 @@ export default function AdminResidents() {
             try {
               const u = JSON.parse(localStorage.getItem(key) || '{}') as AppUserProfile;
               if (u.role === 'elder') localElders.push(u);
-            } catch {}
+            } catch {
+              // Ignore corrupted or unparseable cached profile entry
+            }
           }
           setElders(localElders);
         }

@@ -48,14 +48,26 @@ const emptyForm = (residentId: string): CreateWatchInput => ({
 
 function StatusBadge({ status }: { status: Watch['connectionStatus'] }) {
   const map = {
-    connected: { color: 'emerald', label: 'Connected' },
-    syncing:   { color: 'amber',   label: 'Syncing'   },
-    offline:   { color: 'rose',    label: 'Offline'   },
+    connected: {
+      badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      dot: 'bg-emerald-500 animate-pulse',
+      label: 'Connected',
+    },
+    syncing: {
+      badge: 'bg-amber-50 text-amber-700 border-amber-200',
+      dot: 'bg-amber-500',
+      label: 'Syncing',
+    },
+    offline: {
+      badge: 'bg-rose-50 text-rose-700 border-rose-200',
+      dot: 'bg-rose-500',
+      label: 'Offline',
+    },
   };
-  const { color, label } = map[status];
+  const { badge, dot, label } = map[status] || map.offline;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-${color}-50 text-${color}-700 border border-${color}-200`}>
-      <span className={`h-1.5 w-1.5 rounded-full bg-${color}-500 ${status === 'connected' ? 'animate-pulse' : ''}`} />
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold border ${badge}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
       {label}
     </span>
   );
@@ -543,7 +555,7 @@ function BLEScanTab({ onAddWithDevice }: { onAddWithDevice: (name: string, mac: 
             <ol className="list-decimal list-inside space-y-1 text-amber-700">
               <li>Press <strong>Win + I</strong> to open Settings</li>
               <li>Go to <strong>Privacy &amp; Security → Bluetooth</strong></li>
-              <li>Enable <strong>"Allow apps to access Bluetooth"</strong></li>
+              <li>Enable <strong>&quot;Allow apps to access Bluetooth&quot;</strong></li>
               <li>Ensure Chrome / Edge is listed and allowed</li>
               <li>Restart the browser and try again</li>
             </ol>
@@ -605,7 +617,7 @@ function BLEScanTab({ onAddWithDevice }: { onAddWithDevice: (name: string, mac: 
 
         {scanning && (
           <p className="text-xs text-violet-600 font-medium animate-pulse">
-            A Bluetooth device picker should appear in your browser window. If you don't see it, check if it opened behind other windows.
+            A Bluetooth device picker should appear in your browser window. If you don&apos;t see it, check if it opened behind other windows.
           </p>
         )}
       </div>
@@ -1071,7 +1083,8 @@ export default function WatchManagement() {
 
 // ─── Internal helper: run BLE test without persisting (during add flow) ────────
 
-async function runBLEDiagnosticOnly(_targetName: string): Promise<void> {
+async function runBLEDiagnosticOnly(targetName: string): Promise<void> {
+  void targetName;
   // This is handled by the inline scan/test buttons in WatchFormModal
   // which call the Web Bluetooth API directly.
   // When saving, if the user tested first, the form already has populated fields.

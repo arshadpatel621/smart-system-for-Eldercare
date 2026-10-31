@@ -8,7 +8,7 @@
  *  - GET  /health      ← Health check endpoint
  */
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
@@ -18,9 +18,9 @@ import path from 'path';
 import { JsonCameraRepository } from './camera/camera.repository';
 import { CameraService } from './camera/camera.service';
 import { CameraController } from './camera/camera.controller';
-import { verifyEncryptionConfig } from './camera/camera.crypto';
+import { verifyEncryptionConfig, verifyInternalSecret } from './camera/camera.crypto';
 import { createCameraRouter } from './camera/camera.routes';
-import type { AIEvent } from './camera/camera.types';
+import type { AIEvent, AIEventType } from './camera/camera.types';
 
 // ── Watch Module ────────────────────────────────────────────────────────────
 import { JsonWatchRepository } from './watch/watch.repository';
@@ -28,7 +28,9 @@ import { WatchService } from './watch/watch.service';
 import { WatchController } from './watch/watch.controller';
 import { createWatchRouter } from './watch/watch.routes';
 
-// Load env vars from server/.env
+// Load env vars from server/.env and root .env
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const PORT = process.env.PORT ?? 5000;
@@ -37,11 +39,16 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
 // ── Express App ────────────────────────────────────────────────────────────
 const app = express();
 
+const isAllowedOrigin = (origin: string): boolean => {
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+};
+
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow requests with no origin (server-to-server) or listed origins
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS: origin ${origin} not allowed`));
+    // Allow requests with no origin (server-to-server) or valid localhost/whitelisted origins
+    if (!origin || isAllowedOrigin(origin)) return cb(null, true);
+    cb(null, false);
   },
   credentials: true,
 }));
@@ -61,29 +68,66 @@ const watchController = new WatchController(watchService);
 
 app.use('/api/watches', createWatchRouter(watchController));
 
+const ALLOWED_AI_EVENT_TYPES: AIEventType[] = [
+  'fall_detected',
+  'inactivity_detected',
+  'person_detected',
+  'face_recognized',
+  'smoke_detected',
+  'intrusion_detected',
+];
+
 // ── AI Event Receiver ──────────────────────────────────────────────────────
 /**
  * POST /api/events
  * Receives real-time AI alerts from external Python AI services.
- * Broadcasts to all connected dashboard WebSocket clients.
+ * Validates payload, checks internal authorization token, and broadcasts to dashboard WebSockets.
  *
  * Expected payload:
- *  { type: 'fall_detected', cameraId: 'xxx', confidence: 0.92, details: {} }
+ *  { type: 'person_detected', cameraId: 'xxx', confidence: 0.92, details: {} }
  */
-app.post('/api/events', (req, res) => {
-  const { type, cameraId, confidence, details } = req.body as Partial<AIEvent>;
-
-  if (!type || !cameraId) {
-    res.status(400).json({ error: 'Required fields: type, cameraId' });
+app.post('/api/events', (req: Request, res: Response) => {
+  const internalHeader = req.headers['x-internal-secret'] || req.headers['authorization'];
+  if (!verifyInternalSecret(internalHeader)) {
+    res.status(401).json({ error: 'Unauthorized: valid internal service key required' });
     return;
   }
 
+  const { type, cameraId, confidence, details } = req.body as Partial<AIEvent>;
+
+  if (!type || typeof type !== 'string' || !ALLOWED_AI_EVENT_TYPES.includes(type as AIEventType)) {
+    res.status(400).json({
+      error: `Invalid or missing field "type". Allowed: ${ALLOWED_AI_EVENT_TYPES.join(', ')}`,
+    });
+    return;
+  }
+
+  if (!cameraId || typeof cameraId !== 'string' || !cameraId.trim()) {
+    res.status(400).json({ error: 'Field "cameraId" must be a non-empty string' });
+    return;
+  }
+
+  let conf = 1.0;
+  if (confidence !== undefined) {
+    const parsedConf = Number(confidence);
+    if (isNaN(parsedConf) || parsedConf < 0 || parsedConf > 1) {
+      res.status(400).json({ error: 'Field "confidence" must be a number between 0.0 and 1.0' });
+      return;
+    }
+    conf = parsedConf;
+  }
+
+  const safeDetails =
+    details && typeof details === 'object' && !Array.isArray(details)
+      ? (details as Record<string, unknown>)
+      : {};
+
   const event: AIEvent = {
-    type: type as AIEvent['type'],
-    cameraId,
+    type: type as AIEventType,
+    cameraId: cameraId.trim(),
     timestamp: new Date().toISOString(),
-    confidence: confidence ?? 1.0,
-    details: details ?? {},
+    confidence: conf,
+    details: safeDetails,
   };
 
   console.log(`[AI EVENT] ${event.type} on camera ${event.cameraId} (confidence: ${event.confidence})`);
@@ -101,7 +145,7 @@ app.post('/api/events', (req, res) => {
 });
 
 // ── Health Check ───────────────────────────────────────────────────────────
-app.get('/health', async (_req, res) => {
+app.get('/health', async (_req: Request, res: Response) => {
   const cameras = await cameraService.getCameras();
   const statuses = await cameraService.getAllStatuses();
   res.json({
@@ -123,11 +167,12 @@ wss.on('connection', async (ws: WebSocket) => {
   try {
     const statuses = await cameraService.getAllStatuses();
     ws.send(JSON.stringify({ type: 'camera_statuses', data: statuses }));
-  } catch (err: any) {
-    console.error('[WS] Snapshot failed:', err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[WS] Snapshot failed:', msg);
   }
 
-  ws.on('message', (raw: any) => {
+  ws.on('message', (raw: Buffer | string) => {
     try {
       const msg = JSON.parse(raw.toString());
       console.log('[WS] Client message:', msg);

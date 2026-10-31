@@ -35,6 +35,77 @@ const timelineSteps = [
   { label: 'Caregiver Report generated', stepIndex: 6 }
 ];
 
+interface MockReportRequestData {
+  residentId?: string;
+  name?: string;
+  age?: number;
+  heartRate?: number;
+  spo2?: number;
+  bloodPressure?: string;
+  temperature?: number;
+  steps?: number;
+  sleepHours?: number;
+  cameraEvent?: string;
+  timestamp?: string;
+}
+
+// Get realistic mock data generator matching resident profile
+const getMockReport = (requestData: MockReportRequestData): AIAnalysisResponse => {
+  return {
+    id: `report-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    residentId: requestData.residentId || 'ELD-DEMO01',
+    residentName: requestData.name || 'Resident',
+    healthMonitoring: {
+      heartRateStatus: { value: requestData.heartRate || 76, status: 'Normal' },
+      spo2Status: { value: requestData.spo2 || 97, status: 'Normal' },
+      bloodPressureStatus: { value: requestData.bloodPressure || '128/82', status: 'Normal' },
+      temperatureStatus: { value: requestData.temperature || 36.8, status: 'Normal' }
+    },
+    riskPredictions: {
+      fallRisk: { level: 'low', percentage: 24, factors: ['Stable gait', 'No recent slips'] },
+      dehydrationRisk: { level: 'low', percentage: 18, factors: ['Fluid intake within range'] },
+      cognitiveDeclineRisk: { level: 'low', percentage: 32, factors: ['Active routine', 'Daily tasks done'] },
+      nutritionRisk: { level: 'low', percentage: 28, factors: ['Balanced diet', 'Appetite stable'] }
+    },
+    emergencyStatus: {
+      isEmergency: false,
+      severity: 'none',
+      conditions: [],
+      requiredAction: 'No immediate action required. Resident is stable.'
+    },
+    recommendations: [
+      { category: 'Hydration', recommendation: 'Increase water intake by 250ml', priority: 'medium', rationale: 'Maintain optimal hydration level' },
+      { category: 'Activity', recommendation: 'Take a 15 minute walk after 5 PM', priority: 'low', rationale: 'Promote circulation and joint mobility' },
+      { category: 'Vitals', recommendation: 'Check blood pressure again in 4 hours', priority: 'medium', rationale: 'Monitor evening pressure levels' },
+      { category: 'Medication', recommendation: 'Take scheduled Lisinopril at 08:00 PM', priority: 'high', rationale: 'Ensure blood pressure maintenance' },
+      { category: 'Sleep', recommendation: 'Avoid caffeine after 4 PM', priority: 'low', rationale: 'Improve sleep efficiency and deep sleep cycles' }
+    ],
+    caregiverReport: {
+      summary: `Resident ${requestData.name} is stable today. Vital signs are within normal clinical thresholds.`,
+      alerts: [],
+      actionItems: [
+        'Ensure Lisinopril is taken at 8 PM',
+        'Encourage a short walk in the evening',
+        'Log fluid intake'
+      ],
+      observationNotes: `${requestData.name} has been active today (${requestData.steps || 4120} steps). Energy levels report normal baseline.`
+    },
+    healthSummary: {
+      overallStatus: 'stable',
+      vitalsSummary: `Heart rate of ${requestData.heartRate || 76} bpm, SpO2 of ${requestData.spo2 || 97}%, and Blood Pressure of ${requestData.bloodPressure || '128/82'} mmHg are all within safe clinical boundaries.`,
+      recentTrends: 'Systolic blood pressure has stabilized around 125-130 mmHg over the last 3 days.',
+      complianceMetrics: {
+        healthScore: 87,
+        medicationAdherence: 95,
+        activityLevel: 80,
+        sleepQuality: 88
+      }
+    },
+    overallRiskLevel: 'medium'
+  };
+};
+
 export default function AIInsights() {
   const { data, latestVitals, importWatchData } = useEldercare();
   const { profile } = useAuth();
@@ -48,63 +119,6 @@ export default function AIInsights() {
   // Custom states for visual agent reasoning
   const [currentStep, setCurrentStep] = useState<number>(-1);
   const [demoMode, setDemoMode] = useState<'simulation' | 'webhook'>('simulation');
-
-  // Get realistic mock data generator matching resident profile
-  const getMockReport = (requestData: any): AIAnalysisResponse => {
-    return {
-      id: `report-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      residentId: requestData.residentId,
-      residentName: requestData.name,
-      healthMonitoring: {
-        heartRateStatus: { value: requestData.heartRate || 76, status: 'Normal' },
-        spo2Status: { value: requestData.spo2 || 97, status: 'Normal' },
-        bloodPressureStatus: { value: requestData.bloodPressure || '128/82', status: 'Normal' },
-        temperatureStatus: { value: requestData.temperature || 36.8, status: 'Normal' }
-      },
-      riskPredictions: {
-        fallRisk: { level: 'low', percentage: 24, factors: ['Stable gait', 'No recent slips'] },
-        dehydrationRisk: { level: 'low', percentage: 18, factors: ['Fluid intake within range'] },
-        cognitiveDeclineRisk: { level: 'low', percentage: 32, factors: ['Active routine', 'Daily tasks done'] },
-        nutritionRisk: { level: 'low', percentage: 28, factors: ['Balanced diet', 'Appetite stable'] }
-      },
-      emergencyStatus: {
-        isEmergency: false,
-        severity: 'none',
-        conditions: [],
-        requiredAction: 'No immediate action required. Resident is stable.'
-      },
-      recommendations: [
-        { category: 'Hydration', recommendation: 'Increase water intake by 250ml', priority: 'medium', rationale: 'Maintain optimal hydration level' },
-        { category: 'Activity', recommendation: 'Take a 15 minute walk after 5 PM', priority: 'low', rationale: 'Promote circulation and joint mobility' },
-        { category: 'Vitals', recommendation: 'Check blood pressure again in 4 hours', priority: 'medium', rationale: 'Monitor evening pressure levels' },
-        { category: 'Medication', recommendation: 'Take scheduled Lisinopril at 08:00 PM', priority: 'high', rationale: 'Ensure blood pressure maintenance' },
-        { category: 'Sleep', recommendation: 'Avoid caffeine after 4 PM', priority: 'low', rationale: 'Improve sleep efficiency and deep sleep cycles' }
-      ],
-      caregiverReport: {
-        summary: `Resident ${requestData.name} is stable today. Vital signs are within normal clinical thresholds.`,
-        alerts: [],
-        actionItems: [
-          'Ensure Lisinopril is taken at 8 PM',
-          'Encourage a short walk in the evening',
-          'Log fluid intake'
-        ],
-        observationNotes: `${requestData.name} has been active today (${requestData.steps || 4120} steps). Energy levels report normal baseline.`
-      },
-      healthSummary: {
-        overallStatus: 'stable',
-        vitalsSummary: `Heart rate of ${requestData.heartRate || 76} bpm, SpO2 of ${requestData.spo2 || 97}%, and Blood Pressure of ${requestData.bloodPressure || '128/82'} mmHg are all within safe clinical boundaries.`,
-        recentTrends: 'Systolic blood pressure has stabilized around 125-130 mmHg over the last 3 days.',
-        complianceMetrics: {
-          healthScore: 87,
-          medicationAdherence: 95,
-          activityLevel: 80,
-          sleepQuality: 88
-        }
-      },
-      overallRiskLevel: 'medium'
-    };
-  };
 
   // Auto initialize initial baseline report so 5 agents load immediately
   useEffect(() => {
@@ -121,7 +135,7 @@ export default function AIInsights() {
       setAiReport(getMockReport(initialReqData));
       setLastAnalysisTime(new Date());
     }
-  }, [data, latestVitals, profile?.elderId]);
+  }, [aiReport, data, latestVitals, profile?.elderId]);
 
   if (!data || !latestVitals) {
     return <div className="text-slate-500 p-8 text-center">Loading AI insights...</div>;
@@ -171,6 +185,7 @@ export default function AIInsights() {
           const res = await aiService.analyzeHealthData(requestData);
           return res;
         } catch (err) {
+          console.warn('[AI Dashboard] Webhook analysis failed, falling back to mock report:', err);
           webhookFailed = true;
           return getMockReport(requestData);
         }
