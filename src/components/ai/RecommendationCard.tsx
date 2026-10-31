@@ -93,7 +93,7 @@ export function RecommendationCard({
           </span>
         </div>
         <div className="text-center py-10">
-          <p className="text-sm text-slate-400">Click "Analyze Health Data" to invoke this agent.</p>
+          <p className="text-sm text-slate-400">Click &quot;Analyze Health Data&quot; to invoke this agent.</p>
         </div>
       </div>
     );

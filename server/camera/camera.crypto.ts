@@ -87,3 +87,25 @@ export function verifyEncryptionConfig(): void {
     console.log('[CRYPTO] ✅ Encryption key loaded from environment.');
   }
 }
+
+/**
+ * Safely verifies an internal authorization token using timing-safe comparison.
+ * Never logs the token or compares with plain equality.
+ */
+export function verifyInternalSecret(providedHeader: unknown): boolean {
+  const configuredSecret = process.env.INTERNAL_SERVICE_KEY;
+  if (!configuredSecret || typeof providedHeader !== 'string' || !providedHeader.trim()) {
+    return false;
+  }
+  const rawToken = providedHeader.startsWith('Bearer ')
+    ? providedHeader.slice(7)
+    : providedHeader;
+
+  const providedBuf = Buffer.from(rawToken, 'utf8');
+  const configuredBuf = Buffer.from(configuredSecret, 'utf8');
+
+  if (providedBuf.length !== configuredBuf.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(providedBuf, configuredBuf);
+}

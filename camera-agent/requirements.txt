@@ -1,0 +1,11 @@
+# VitalCare Local Camera Agent Dependencies
+# Compatible with Python 3.11 - 3.13 on Windows x64
+
+ultralytics>=8.3.0,<8.5.0
+opencv-python>=4.8.0,<5.1.0
+torch>=2.2.0
+torchvision>=0.17.0
+requests>=2.28.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+Pillow>=9.5.0
+PyYAML>=6.0

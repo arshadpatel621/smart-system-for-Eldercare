@@ -61,7 +61,7 @@ export default function ElderDashboard() {
             Good Morning, {profile?.fullName || 'Resident'} 👋
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Here's your personal health overview and today's schedule.
+            Here&apos;s your personal health overview and today&apos;s schedule.
           </p>
         </div>
 
@@ -94,7 +94,7 @@ export default function ElderDashboard() {
       <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <span className="material-symbols-outlined text-rose-500">favorite</span> Today's Health Summary
+            <span className="material-symbols-outlined text-rose-500">favorite</span> Today&apos;s Health Summary
           </h2>
           <Link to="/elder/health" className="text-xs font-bold text-blue-600 hover:underline">
             View Full Vitals →
@@ -158,7 +158,7 @@ export default function ElderDashboard() {
       <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <span className="material-symbols-outlined text-blue-600">event_repeat</span> Today's Routine
+            <span className="material-symbols-outlined text-blue-600">event_repeat</span> Today&apos;s Routine
           </h2>
           <Link to="/elder/routine" className="text-xs font-bold text-blue-600 hover:underline">
             View Schedule →

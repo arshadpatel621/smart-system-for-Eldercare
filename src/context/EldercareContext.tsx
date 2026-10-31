@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -107,7 +108,7 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
   const lastNotificationId = useRef<string | null>(null);
   const storageMode = getStorageMode();
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!activeElderId) {
       setData(null);
       setLoading(false);
@@ -122,29 +123,30 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     }
     
     // Only show loading if we don't have ANY data yet
-    if (!data) setLoading(true);
+    setData((current) => {
+      if (!current) setLoading(true);
+      return current;
+    });
     
     setError(null);
     try {
       const result = await loadEldercareData(activeElderId, profile?.fullName, isDemoUser);
       setData(result);
-    } catch (loadError: any) {
-      const errMsg = loadError?.message || String(loadError);
+    } catch (loadError: unknown) {
+      const errMsg = (loadError as Error)?.message || String(loadError);
       if (!errMsg.includes('Missing or insufficient permissions')) {
         console.warn('Firebase data load notice:', errMsg);
       }
-      if (!data) {
-        setData(loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
-      }
+      setData((current) => current || loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeElderId, user, profile, isDemoUser]);
 
   useEffect(() => {
     if (authLoading) return;
     void refresh();
-  }, [authLoading, activeElderId, isDemoUser]);
+  }, [authLoading, refresh]);
 
   const latestVitals = data ? getLatestVitals(data) : null;
   const derivedAlerts = useMemo(() => {

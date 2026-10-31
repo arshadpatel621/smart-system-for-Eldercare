@@ -85,6 +85,15 @@ export interface CreateCameraInput {
   username: string;
   password: string;
   customRtspPath?: string;
+  discoveredRtspPath?: string;
+  model?: string;
+  firmware?: string;
+  serialNumber?: string;
+  onvifVersion?: string;
+  resolution?: string;
+  fps?: number;
+  healthStatus?: 'healthy' | 'degraded' | 'offline' | 'unknown';
+  enabled?: boolean;
 }
 
 export interface UpdateCameraInput extends Partial<CreateCameraInput> {
@@ -96,6 +105,8 @@ export interface ProbeResult {
   success: boolean; ipAddress: string; brand: CameraBrand;
   portsScanned: PortScanResult[];
   rtspAvailable: boolean; onvifAvailable: boolean;
+  detectedRtspPort?: number;
+  detectedOnvifPort?: number;
   discoveredRtspPath?: string;  // path only, stored for future streaming
   onvifStreamUri?: string;      // masked full RTSP URI from ONVIF GetStreamUri (display only)
   onvifVersion?: string;
@@ -114,13 +125,43 @@ export interface DiscoveredCamera {
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error ?? `API error ${res.status}`);
-  return json as T;
+  const isDiagnostic = path.includes('/test') || path.includes('/discover');
+  const timeoutMs = isDiagnostic ? 35000 : 15000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: options?.signal ?? controller.signal,
+      ...options,
+    });
+    clearTimeout(timeoutId);
+    let json: Record<string, unknown> = {};
+    try {
+      json = (await res.json()) as Record<string, unknown>;
+    } catch {
+      // Non-JSON response
+    }
+    if (!res.ok) {
+      const errorMsg =
+        typeof json.error === 'string'
+          ? json.error
+          : typeof json.message === 'string'
+          ? json.message
+          : `API error ${res.status}: ${res.statusText}`;
+      throw new Error(errorMsg);
+    }
+    return json as T;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs / 1000}s communicating with backend (${path})`);
+    }
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(String(err));
+  }
 }
 
 // ─── Camera CRUD ──────────────────────────────────────────────────────────────
@@ -200,7 +241,7 @@ export const discoverViaAgent = async (): Promise<DiscoveredCamera[]> => {
   if (!res.ok) throw new Error('VitalCare Local Camera Agent is not running');
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Agent discovery failed');
-  return (json.devices ?? []).map((d: any) => ({
+  return (json.devices ?? []).map((d: { ip: string; onvifPort?: number; discoveredAt?: string }) => ({
     ipAddress: d.ip,
     onvifPort: d.onvifPort ?? 80,
     discoveredAt: d.discoveredAt ?? new Date().toISOString(),
@@ -250,9 +291,18 @@ export const testAdHocConnection = (input: {
   });
 
 export const discoverCamerasOnLAN = async (): Promise<DiscoveredCamera[]> => {
-  const agent = await checkAgentStatus();
-  if (agent) {
-    return discoverViaAgent();
+  try {
+    const agent = await checkAgentStatus();
+    if (agent && agent.status === 'online') {
+      try {
+        const devices = await discoverViaAgent();
+        if (devices.length > 0) return devices;
+      } catch (err) {
+        console.warn('Local agent discovery failed, falling back to backend:', err);
+      }
+    }
+  } catch (err) {
+    console.warn('Agent check failed, falling back to backend:', err);
   }
   return apiFetch<DiscoveredCamera[]>('/api/cameras/discover');
 };

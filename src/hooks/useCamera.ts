@@ -29,8 +29,8 @@ export function useCamera(cameraId: string) {
       setStatus(data);
       if (caps) setCapabilities(caps);
       setError(null);
-    } catch (err: any) {
-      setError(err.message ?? 'Failed to fetch status');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch status');
     } finally {
       setLoading(false);
     }
@@ -89,8 +89,8 @@ export function useCamera(cameraId: string) {
       setError(null);
       // Refresh status after toggling
       await refreshStatus();
-    } catch (err: any) {
-      setError(err.message ?? 'Failed to start camera');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start camera');
     } finally {
       setLoading(false);
     }
@@ -105,8 +105,8 @@ export function useCamera(cameraId: string) {
       await toggleCamera(cameraId, false);
       setError(null);
       setStatus((prev) => prev ? { ...prev, status: 'OFFLINE' } : prev);
-    } catch (err: any) {
-      setError(err.message ?? 'Failed to stop camera');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to stop camera');
     } finally {
       setLoading(false);
     }
@@ -117,8 +117,8 @@ export function useCamera(cameraId: string) {
     try {
       await moveCamera(cameraId, action);
       setError(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'PTZ action failed');
     } finally {
       setPtzLoading(false);
     }
@@ -126,14 +126,14 @@ export function useCamera(cameraId: string) {
 
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  const executeAction = async (actionFn: () => Promise<any>) => {
+  const executeAction = async (actionFn: () => Promise<{ message?: string }>) => {
     try {
       const res = await actionFn();
       setActionSuccess(res.message || 'Success');
       setTimeout(() => setActionSuccess(null), 3000); // clear after 3s
       setError(null);
-    } catch (err: any) {
-      setError(err.message ?? 'Action failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Action failed');
       setActionSuccess(null);
     }
   };

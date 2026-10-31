@@ -73,6 +73,15 @@ export interface CreateCameraDto {
   username: string;
   password: string;           // Plain text — encrypted before storage
   customRtspPath?: string;    // e.g. /cam/realmonitor?channel=1&subtype=0
+  discoveredRtspPath?: string;
+  model?: string;
+  firmware?: string;
+  serialNumber?: string;
+  onvifVersion?: string;
+  resolution?: string;
+  fps?: number;
+  healthStatus?: 'healthy' | 'degraded' | 'offline' | 'unknown';
+  enabled?: boolean;
 }
 
 /**
@@ -89,6 +98,14 @@ export interface UpdateCameraDto {
   username?: string;
   password?: string;          // Plain text if provided — re-encrypted
   customRtspPath?: string;
+  discoveredRtspPath?: string;
+  model?: string;
+  firmware?: string;
+  serialNumber?: string;
+  onvifVersion?: string;
+  resolution?: string;
+  fps?: number;
+  healthStatus?: 'healthy' | 'degraded' | 'offline' | 'unknown';
   enabled?: boolean;
 }
 
@@ -154,8 +171,11 @@ export interface ProbeResult {
   portsScanned: PortScanResult[];
   rtspAvailable: boolean;
   onvifAvailable: boolean;
+  detectedRtspPort?: number;
+  detectedOnvifPort?: number;
   // Discovered details
   discoveredRtspPath?: string;    // e.g. /Streaming/Channels/101
+  onvifStreamUri?: string;        // Redacted stream URI from ONVIF GetStreamUri (display only)
   onvifVersion?: string;
   manufacturer?: string;
   model?: string;
@@ -201,10 +221,15 @@ export interface PTZCommand {
  */
 export interface AIStreamConsumer {
   cameraId: string;
+  name?: string;
+  brand?: CameraBrand;
+  location?: CameraLocation;
+  status?: string;
   streamEndpoint: string;    // e.g. http://localhost:5000/api/cameras/:id/stream
   websocketEndpoint: string; // e.g. ws://localhost:5000
   frameRate: number;
   resolution: string;
+  directRtspUrl?: string;    // Provided only internally to authenticated/local agent
 }
 
 export type AIEventType =
@@ -238,6 +263,7 @@ export interface CameraRepository {
   setEnabled(id: string, enabled: boolean): Promise<CameraRecord>;
   updateMetadata(id: string, metadata: Partial<Pick<CameraRecord,
     'model' | 'firmware' | 'serialNumber' | 'onvifVersion' |
-    'discoveredRtspPath' | 'resolution' | 'fps' | 'lastConnected' | 'healthStatus'
+    'discoveredRtspPath' | 'resolution' | 'fps' | 'lastConnected' | 'healthStatus' |
+    'port' | 'onvifPort'
   >>): Promise<CameraRecord>;
 }

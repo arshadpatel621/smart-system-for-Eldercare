@@ -166,15 +166,15 @@ export default function CareTeam() {
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-4">
-        {[
+        {([
           { id: 'caregivers', label: `Caregivers (${caregivers.length})`, icon: 'group' },
           { id: 'doctors', label: `Doctors & Physicians (${doctors.length})`, icon: 'stethoscope' },
           { id: 'reports', label: `Medical Reports (${reports.length})`, icon: 'description' },
           { id: 'activity', label: 'Activity Timeline', icon: 'history' },
-        ].map((tab) => (
+        ] as const).map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => setActiveTab(tab.id)}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold transition-colors ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'

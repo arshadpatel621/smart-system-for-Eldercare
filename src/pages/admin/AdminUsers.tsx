@@ -22,7 +22,9 @@ export default function AdminUsers() {
             try {
               const u = JSON.parse(localStorage.getItem(key) || '{}') as AppUserProfile;
               if (u.uid) localUsers.push(u);
-            } catch {}
+            } catch {
+              // Ignore corrupted or unparseable cached profile entry
+            }
           }
           setUsers(localUsers);
         }

@@ -1,28 +1,28 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db, hasFirebaseConfig } from '../lib/firebase';
-import type { Device, CreateDeviceInput, DeviceCategory } from '../types/device';
+import type { Device, CreateDeviceInput, DeviceCategory, DeviceConnectionType } from '../types/device';
 
 const STORAGE_KEY = 'vitalcare_devices';
 const HARDWARE_SUBCOLLECTION = 'hardware_devices';
 
-function sanitizeDevice(raw: any, defaultPatientId: string): Device {
+function sanitizeDevice(raw: Partial<Device> & Record<string, unknown>, defaultPatientId: string): Device {
   return {
-    id: raw.id || crypto.randomUUID(),
-    patientId: raw.patientId || defaultPatientId,
-    category: raw.category || 'wearable',
-    brand: raw.brand || 'Generic',
-    model: raw.model || raw.name || 'Connected Device',
-    macAddress: raw.macAddress || undefined,
-    ipAddress: raw.ipAddress || undefined,
-    serialNumber: raw.serialNumber || undefined,
-    connectionType: raw.connectionType || 'bluetooth',
-    firmwareVersion: raw.firmwareVersion || undefined,
-    battery: typeof raw.battery === 'number' ? raw.battery : raw.batteryLevel,
+    id: (raw.id as string) || crypto.randomUUID(),
+    patientId: (raw.patientId as string) || defaultPatientId,
+    category: (raw.category as DeviceCategory) || 'wearable',
+    brand: (raw.brand as string) || 'Generic',
+    model: (raw.model as string) || (raw.name as string) || 'Connected Device',
+    macAddress: (raw.macAddress as string) || undefined,
+    ipAddress: (raw.ipAddress as string) || undefined,
+    serialNumber: (raw.serialNumber as string) || undefined,
+    connectionType: (raw.connectionType as Device['connectionType']) || 'bluetooth',
+    firmwareVersion: (raw.firmwareVersion as string) || undefined,
+    battery: typeof raw.battery === 'number' ? raw.battery : (raw.batteryLevel as number | undefined),
     status: raw.status === 'connected' ? 'connected' : raw.status === 'error' ? 'error' : 'disconnected',
-    lastSync: raw.lastSync || raw.lastSyncedAt || undefined,
-    supportedMetrics: Array.isArray(raw.supportedMetrics) ? raw.supportedMetrics : [],
-    location: raw.location || undefined,
-    networkProtocol: raw.networkProtocol || undefined,
+    lastSync: (raw.lastSync as string) || (raw.lastSyncedAt as string) || undefined,
+    supportedMetrics: Array.isArray(raw.supportedMetrics) ? (raw.supportedMetrics as Device['supportedMetrics']) : [],
+    location: (raw.location as string) || undefined,
+    networkProtocol: (raw.networkProtocol as DeviceConnectionType) || undefined,
   };
 }
 
@@ -67,8 +67,8 @@ class DeviceServiceClass {
         // Migration fallback: check legacy devices subcollection for hardware records with category or model
         const legacySnap = await getDocs(collection(elderRef, 'devices'));
         const legacyHardware = legacySnap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((d: any) => d.category || d.model);
+          .map((d) => ({ id: d.id, ...d.data() } as Partial<Device> & Record<string, unknown>))
+          .filter((d) => Boolean(d.category || d.model));
 
         if (legacyHardware.length > 0) {
           return legacyHardware.map((d) => sanitizeDevice(d, patientId));
