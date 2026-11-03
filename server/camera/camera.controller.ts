@@ -13,7 +13,7 @@ import type { CreateCameraDto, UpdateCameraDto, PTZDirection } from './camera.ty
 
 const VALID_BRANDS = ['cpplus', 'dahua', 'hikvision', 'tplink_tapo', 'ezviz', 'onvif', 'rtsp'];
 const VALID_LOCATIONS = ['living_room', 'bedroom', 'kitchen', 'bathroom', 'entrance', 'garden', 'hallway', 'dining_room', 'other'];
-const VALID_PTZ = ['left', 'right', 'up', 'down', 'home'];
+const VALID_PTZ = ['left', 'right', 'up', 'down', 'home', 'zoom_in', 'zoom_out', 'stop'];
 
 function isValidIpOrHost(host: string): boolean {
   if (!host || typeof host !== 'string') return false;
@@ -76,6 +76,26 @@ export class CameraController {
     try {
       const status = await this.service.getCameraStatus(req.params.id);
       res.json(status);
+    } catch (err: unknown) {
+      res.status(404).json({ error: getErrorMessage(err) });
+    }
+  };
+
+  /** GET /api/cameras/:id/capabilities — actions implemented for this camera */
+  getCameraCapabilities = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const camera = await this.service.getCameraById(req.params.id);
+      const supportsPTZ = camera.brand === 'cpplus' || camera.brand === 'dahua';
+
+      res.json({
+        supportsPTZ,
+        supportsTracking: false,
+        supportsNightVision: false,
+        supportsTalk: false,
+        supportsRecording: true,
+        supportsSnapshot: false,
+        supportsPresets: false,
+      });
     } catch (err: unknown) {
       res.status(404).json({ error: getErrorMessage(err) });
     }
@@ -325,6 +345,13 @@ export class CameraController {
       res.status(400).json({ error: `Invalid action. Valid: ${VALID_PTZ.join(', ')}` });
       return;
     }
+    if (
+      speed !== undefined &&
+      (typeof speed !== 'number' || !Number.isFinite(speed) || speed < 1 || speed > 10)
+    ) {
+      res.status(400).json({ error: 'Speed must be a number between 1 and 10' });
+      return;
+    }
     try {
       const result = await this.service.controlPTZ(req.params.id, action as PTZDirection, speed);
       if (result.success) {
@@ -335,6 +362,81 @@ export class CameraController {
     } catch (err: unknown) {
       res.status(400).json({ error: getErrorMessage(err) });
     }
+  };
+
+  /** POST /api/cameras/:id/recordings — record the existing shared MJPEG stream */
+  startRecording = async (req: Request, res: Response): Promise<void> => {
+    const duration = req.body?.duration;
+    if (
+      duration !== undefined &&
+      (!Number.isInteger(duration) || duration < 1 || duration > 3600)
+    ) {
+      res.status(400).json({ error: 'Duration must be an integer between 1 and 3600 seconds' });
+      return;
+    }
+
+    try {
+      const recording = await this.service.startRecording(req.params.id, duration);
+      res.status(202).json(recording);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      res.status(message.startsWith('Camera not found:') ? 404 : 400).json({ error: message });
+    }
+  };
+
+  /** POST /api/cameras/:id/recordings/:recordingId/stop */
+  stopRecording = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const recording = await this.service.stopRecording(
+        req.params.id,
+        req.params.recordingId,
+      );
+      res.json(recording);
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      res.status(message.startsWith('No active recording') ? 404 : 500).json({ error: message });
+    }
+  };
+
+  /** GET /api/cameras/:id/recordings — completed playable recordings */
+  listRecordings = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const recordings = await this.service.listRecordings(req.params.id);
+      res.json({ recordings });
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      res.status(message.startsWith('Camera not found:') ? 404 : 500).json({ error: message });
+    }
+  };
+
+  /** GET /api/cameras/:id/recordings/:recordingId — inline MP4 playback */
+  playRecording = (req: Request, res: Response): void => {
+    const filePath = this.service.getRecordingPath(req.params.id, req.params.recordingId);
+    if (!filePath) {
+      res.status(404).json({ error: 'Completed MP4 recording not found.' });
+      return;
+    }
+
+    res.type('video/mp4').sendFile(filePath, { dotfiles: 'deny' }, (err: Error) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Could not stream the recording.' });
+      }
+    });
+  };
+
+  /** GET /api/cameras/:id/recordings/:recordingId/download */
+  downloadRecording = (req: Request, res: Response): void => {
+    const filePath = this.service.getRecordingPath(req.params.id, req.params.recordingId);
+    if (!filePath) {
+      res.status(404).json({ error: 'Completed MP4 recording not found.' });
+      return;
+    }
+
+    res.download(filePath, req.params.recordingId, (err: Error) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Could not download the recording.' });
+      }
+    });
   };
 
   /** GET /api/cameras/discover — scan LAN for ONVIF cameras */

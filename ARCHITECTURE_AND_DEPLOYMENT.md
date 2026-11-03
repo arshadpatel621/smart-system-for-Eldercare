@@ -106,9 +106,15 @@ VITE_CAMERA_API_URL=http://localhost:5000
    - Parses `XAddrs` in XML responses to identify both IP and actual ONVIF port (e.g. 80, 8899, 2020).
    - Validates reachability on RTSP ports (554, 8554).
 2. **Local Python Camera Agent (`camera-agent/agent.py` on `http://127.0.0.1:8000`)**:
-   - Provides local edge AI processing (YOLOv11 fall detection, pose analysis, person tracking).
-   - Serves as an auxiliary discovery and diagnostic service.
+   - Provides auxiliary ONVIF discovery and camera diagnostics.
    - Frontend automatically falls back to the Node.js backend discovery if the Python agent is offline.
+
+### Real-Time Person and Fall Detection
+- Install the camera-agent dependencies with `camera-agent/setup_env.ps1`, then set `ROBOFLOW_API_KEY` in `camera-agent/.env` (never commit that file).
+- Start the Node.js camera backend, then run `camera-agent/.venv/Scripts/python.exe camera-agent/person_tracker.py --camera-id <camera-id> --api-url http://localhost:5000` from the project root.
+- The tracker consumes the existing Node.js MJPEG stream (no separate RTSP connection), submits frames to Roboflow model `fall-detection-real/1`, and uses ByteTrack IDs. Sampling defaults to 3 FPS and is configurable with `--inference-fps` (maximum 5); camera capture and annotated streaming continue independently of inference requests.
+- Bounding boxes are green for `standing`, yellow for `falling` or an unconfirmed `fallen` prediction, and red only after a `fallen` prediction persists for 3 seconds across multiple samples. The 3-second temporal confirmation is intentional: `norman.mp4` is normal walking footage and its reported false `fallen` interval from about 6.0–8.4 seconds lasts only 2.4 seconds. Confidence is not raised to mask that model error. A confirmed incident is sent once through the existing `fall_detected` event pipeline and remains latched until stable standing recovery.
+- The local annotated MJPEG endpoint binds to `127.0.0.1` by default; do not expose it on a network interface without adding authentication and TLS. Alerts are advisory and require caregiver verification; do not use this feature as the sole emergency-monitoring mechanism.
 
 ### Credential Security Architecture
 - **AES-256-CBC Encryption**: Camera passwords and custom RTSP URLs are encrypted before persistence in `server/data/cameras.json`.
@@ -160,4 +166,3 @@ npm run dev
 cd D:\eldercare\eldercare\camera-agent
 python agent.py
 ```
-

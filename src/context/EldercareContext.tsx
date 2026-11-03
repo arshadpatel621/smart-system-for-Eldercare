@@ -53,7 +53,7 @@ interface EldercareContextValue {
   storageMode: 'firebase' | 'local';
   refresh: () => Promise<void>;
   updateProfile: (profile: ElderProfile) => Promise<void>;
-  createMetric: (metric: Omit<HealthMetric, 'id'>) => Promise<void>;
+  createMetric: (metric: Omit<HealthMetric, 'id'>) => Promise<boolean>;
   createMedication: (medication: Omit<Medication, 'id'> & { id?: string }) => Promise<void>;
   takeMedication: (medicationId: string, scheduledFor: string) => Promise<void>;
   createContact: (contact: Omit<CareContact, 'id'>) => Promise<void>;
@@ -166,6 +166,8 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     return buildRecommendations(data);
   }, [data]);
 
+  const setActiveElderId = useCallback((id: string | null) => setSelectedElderId(id), []);
+
   useEffect(() => {
     if (!derivedAlerts.length || !('Notification' in window) || Notification.permission !== 'granted') {
       return;
@@ -196,7 +198,7 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
   const value: EldercareContextValue = {
     data,
     activeElderId,
-    setActiveElderId: (id: string | null) => setSelectedElderId(id),
+    setActiveElderId,
     latestVitals,
     derivedAlerts,
     recommendations,
@@ -205,7 +207,25 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     storageMode,
     refresh,
     updateProfile: async (profile) => persist(() => saveProfile(profile, activeElderId!)),
-    createMetric: async (metric) => persist(() => addMetric(metric, activeElderId!)),
+    createMetric: async (metric) => {
+      if (!activeElderId) {
+        setError('No elder profile is assigned to this account.');
+        return false;
+      }
+
+      setError(null);
+      try {
+        const result = await addMetric(metric, activeElderId);
+        const sanitized = isDemoUser
+          ? result
+          : sanitizeRealAccountData(result, activeElderId, profile?.fullName);
+        setData(sanitized);
+        return true;
+      } catch (persistError) {
+        setError(formatFirebaseError(persistError));
+        return false;
+      }
+    },
     createMedication: async (medication) => persist(() => saveMedication(medication, activeElderId!)),
     takeMedication: async (medicationId, scheduledFor) =>
       persist(() => markMedicationTaken(medicationId, scheduledFor, activeElderId!)),

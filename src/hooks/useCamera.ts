@@ -8,8 +8,11 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   fetchCameraStatus, moveCamera, toggleCamera, getWebSocketUrl, getStreamUrl,
   fetchCameraCapabilities, moveCameraPreset, toggleMotionTracking, toggleNightVision, triggerTalk, captureSnapshot, recordVideo,
+  stopVideoRecording, fetchCameraRecordings, getRecordingUrl, getRecordingDownloadUrl,
   type CameraStatus, type PTZDirection, type CameraCapabilities
 } from '../services/camera';
+
+export type CameraWebSocketStatus = 'connecting' | 'connected' | 'disconnected';
 
 export function useCamera(cameraId: string) {
   const [status, setStatus] = useState<CameraStatus | null>(null);
@@ -17,7 +20,9 @@ export function useCamera(cameraId: string) {
   const [error, setError] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<CameraCapabilities | null>(null);
   const [ptzLoading, setPtzLoading] = useState(false);
+  const [webSocketStatus, setWebSocketStatus] = useState<CameraWebSocketStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
+  const ptzCommandRef = useRef<Promise<void>>(Promise.resolve());
 
   const refreshStatus = useCallback(async () => {
     setLoading(true);
@@ -38,12 +43,19 @@ export function useCamera(cameraId: string) {
 
   useEffect(() => {
     let mounted = true;
-    let reconnectTimer: NodeJS.Timeout;
+    let reconnectTimer: number | undefined;
 
     const connect = () => {
+      if (!mounted) return;
+      setWebSocketStatus('connecting');
+
       try {
         const ws = new WebSocket(getWebSocketUrl());
         wsRef.current = ws;
+
+        ws.onopen = () => {
+          if (mounted) setWebSocketStatus('connected');
+        };
 
         ws.onmessage = (ev) => {
           if (!mounted) return;
@@ -62,10 +74,14 @@ export function useCamera(cameraId: string) {
 
         ws.onclose = () => {
           if (!mounted) return;
-          reconnectTimer = setTimeout(connect, 5000);
+          setWebSocketStatus('disconnected');
+          reconnectTimer = window.setTimeout(connect, 5000);
         };
         ws.onerror = () => ws.close();
-      } catch { /* ignore */ }
+      } catch {
+        setWebSocketStatus('disconnected');
+        reconnectTimer = window.setTimeout(connect, 5000);
+      }
     };
 
     connect();
@@ -73,7 +89,7 @@ export function useCamera(cameraId: string) {
 
     return () => {
       mounted = false;
-      clearTimeout(reconnectTimer);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
   }, [cameraId, refreshStatus]);
@@ -112,17 +128,54 @@ export function useCamera(cameraId: string) {
     }
   };
 
-  const triggerPTZ = async (action: PTZDirection) => {
-    setPtzLoading(true);
-    try {
-      await moveCamera(cameraId, action);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'PTZ action failed');
-    } finally {
-      setPtzLoading(false);
-    }
+  const triggerPTZ = (action: PTZDirection) => {
+    const command = ptzCommandRef.current.catch(() => undefined).then(async () => {
+      setPtzLoading(true);
+      try {
+        await moveCamera(cameraId, action);
+        setError(null);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'PTZ action failed');
+      } finally {
+        setPtzLoading(false);
+      }
+    });
+    ptzCommandRef.current = command;
+    return command;
   };
+
+  const record = useCallback(async (duration: number) => {
+    try {
+      const recording = await recordVideo(cameraId, duration);
+      setError(null);
+      return recording;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start recording');
+      throw err;
+    }
+  }, [cameraId]);
+
+  const stopRecording = useCallback(async (recordingId: string) => {
+    try {
+      const recording = await stopVideoRecording(cameraId, recordingId);
+      setError(null);
+      return recording;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to stop recording');
+      throw err;
+    }
+  }, [cameraId]);
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      const recordings = await fetchCameraRecordings(cameraId);
+      setError(null);
+      return recordings;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load recordings');
+      throw err;
+    }
+  }, [cameraId]);
 
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -139,7 +192,7 @@ export function useCamera(cameraId: string) {
   };
 
   return {
-    status, loading, error, actionSuccess, ptzLoading, capabilities,
+    status, loading, error, actionSuccess, ptzLoading, capabilities, webSocketStatus,
     start, stop, triggerPTZ, refresh: refreshStatus,
     streamUrl: getStreamUrl(cameraId),
     gotoPreset: (preset: string) => executeAction(() => moveCameraPreset(cameraId, preset)),
@@ -147,6 +200,10 @@ export function useCamera(cameraId: string) {
     setNightVision: (enabled: boolean) => executeAction(() => toggleNightVision(cameraId, enabled)),
     talk: () => executeAction(() => triggerTalk(cameraId)),
     snapshot: () => executeAction(() => captureSnapshot(cameraId)),
-    record: (duration?: number) => executeAction(() => recordVideo(cameraId, duration)),
+    record,
+    stopRecording,
+    loadRecordings,
+    recordingUrl: (recordingId: string) => getRecordingUrl(cameraId, recordingId),
+    recordingDownloadUrl: (recordingId: string) => getRecordingDownloadUrl(cameraId, recordingId),
   };
 }

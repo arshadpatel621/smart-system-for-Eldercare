@@ -13,8 +13,11 @@
 
 import { test, describe, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'child_process';
+import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
 import {
   encrypt,
@@ -28,7 +31,14 @@ import {
   BRAND_PROFILES,
 } from '../camera/brand.profiles';
 import { JsonCameraRepository } from '../camera/camera.repository';
-import { toPublic, CameraService } from '../camera/camera.service';
+import {
+  createCameraStreamFfmpegConfig,
+  MjpegFrameParser,
+  toPublic,
+  CameraService,
+} from '../camera/camera.service';
+import { CameraController } from '../camera/camera.controller';
+import { createCameraRouter } from '../camera/camera.routes';
 import { probeCamera, parseFfmpegStderr } from '../camera/camera.probe';
 import type { CameraRecord, CameraBrand, CreateCameraDto } from '../camera/camera.types';
 
@@ -107,6 +117,48 @@ describe('VitalCare Camera Integration Tests', () => {
         url,
         'rtsp://admin:aabb123@192.168.1.113:5543/09009cbd9dc76737d7e64380b5612bd8/live/channel0'
       );
+    });
+
+    test('RTSP stream config uses the verified ONVIF path, TCP, HEVC decoding, and MJPEG output', () => {
+      const camera: CameraRecord = {
+        id: 'camera-test',
+        name: 'Living Room',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: '192.168.1.184',
+        port: 5543,
+        onvifPort: 8000,
+        username: 'admin',
+        passwordEncrypted: encrypt('test-camera-password'),
+        discoveredRtspPath: '/09009cbd9dc76737d7e64380b5612bd8/live/channel0',
+        enabled: true,
+        healthStatus: 'healthy',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const config = createCameraStreamFfmpegConfig(camera, 'test-camera-password');
+      const inputIndex = config.args.indexOf('-i');
+      const inputUrl = config.args[inputIndex + 1];
+      const outputCodecIndex = config.args.indexOf('-c:v');
+
+      assert.equal(config.args[config.args.indexOf('-rtsp_transport') + 1], 'tcp');
+      assert.equal(
+        inputUrl,
+        'rtsp://admin:test-camera-password@192.168.1.184:5543/09009cbd9dc76737d7e64380b5612bd8/live/channel0'
+      );
+      assert.ok(inputIndex >= 0);
+      assert.ok(outputCodecIndex > inputIndex, 'Output codec must not constrain the RTSP input decoder');
+      assert.equal(config.args[outputCodecIndex + 1], 'mjpeg');
+      assert.equal(config.args[config.args.indexOf('-f', outputCodecIndex) + 1], 'image2pipe');
+      assert.match(config.redactedRtspUrl ?? '', /admin:\*\*\*@192\.168\.1\.184:5543/);
+      assert.ok(!config.redactedRtspUrl?.includes('test-camera-password'));
+
+      const decoders = spawnSync(ffmpegInstaller.path, ['-hide_banner', '-decoders'], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      assert.equal(decoders.status, 0, decoders.stderr);
+      assert.match(decoders.stdout, /\bhevc\b/i, 'Bundled FFmpeg must support HEVC input');
     });
 
     test('buildRtspUrl encodes special characters in credentials safely', () => {
@@ -232,6 +284,308 @@ describe('VitalCare Camera Integration Tests', () => {
 
       const findDeleted = await repo.findById(created.id);
       assert.equal(findDeleted, null);
+    });
+  });
+
+  // ─── PTZ continuous movement commands ─────────────────────────────────────
+  describe('3a. PTZ Direction, Zoom, and Stop Commands', () => {
+    test('discovers authenticated ONVIF profiles and sends continuous move and stop commands', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'PTZ Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: '192.0.2.15',
+        onvifPort: 80,
+        username: 'operator',
+        password: 'ptz-secret',
+      });
+      const service = new CameraService(repo);
+      const originalFetch = globalThis.fetch;
+      const requests: Array<{ url: URL; body: string }> = [];
+      const servicesXml = `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Body><tds:GetServicesResponse>
+        <tds:Service><tds:Namespace>http://www.onvif.org/ver20/media/wsdl</tds:Namespace><tds:XAddr>http://192.0.2.15:8080/onvif/media2_service</tds:XAddr></tds:Service>
+        <tds:Service><tds:Namespace>http://www.onvif.org/ver10/media/wsdl</tds:Namespace><tds:XAddr>http://192.0.2.15:8080/onvif/media_service</tds:XAddr></tds:Service>
+        <tds:Service><tds:Namespace>http://www.onvif.org/ver20/ptz/wsdl</tds:Namespace><tds:XAddr>http://192.0.2.15:8080/onvif/ptz_service</tds:XAddr></tds:Service>
+      </tds:GetServicesResponse></s:Body></s:Envelope>`;
+      const profilesXml = `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema"><s:Body><trt:GetProfilesResponse><trt:Profiles token="profile-token"><tt:PTZConfiguration token="ptz-config"/></trt:Profiles></trt:GetProfilesResponse></s:Body></s:Envelope>`;
+      const nodesXml = `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tt="http://www.onvif.org/ver10/schema"><s:Body><tt:SupportedPTZSpaces>
+        <tt:ContinuousPanTiltVelocitySpace><tt:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</tt:URI><tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange><tt:YRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:YRange></tt:ContinuousPanTiltVelocitySpace>
+        <tt:ContinuousZoomVelocitySpace><tt:URI>http://www.onvif.org/ver10/tptz/ZoomSpaces/VelocityGenericSpace</tt:URI><tt:XRange><tt:Min>-1</tt:Min><tt:Max>1</tt:Max></tt:XRange></tt:ContinuousZoomVelocitySpace>
+      </tt:SupportedPTZSpaces></s:Body></s:Envelope>`;
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = input instanceof Request
+          ? new URL(input.url)
+          : input instanceof URL
+            ? input
+            : new URL(input);
+        const body = String(init?.body ?? '');
+        requests.push({
+          url,
+          body,
+        });
+        if (body.includes('<tds:GetServices>')) return new Response(servicesXml, { status: 200 });
+        if (body.includes('<trt:GetProfiles')) return new Response(profilesXml, { status: 200 });
+        if (body.includes('<tptz:GetNodes')) return new Response(nodesXml, { status: 200 });
+        return new Response('<s:Envelope><s:Body><tptz:ContinuousMoveResponse/></s:Body></s:Envelope>', { status: 200 });
+      }) as typeof fetch;
+
+      try {
+        for (const [action, expectedCode] of [
+          ['up', 'y="0.500"'],
+          ['down', 'y="-0.500"'],
+          ['left', 'x="-0.500"'],
+          ['right', 'x="0.500"'],
+          ['zoom_in', 'x="0.500"'],
+          ['zoom_out', 'x="-0.500"'],
+        ] as const) {
+          const started = await service.controlPTZ(camera.id, action, 5);
+          assert.equal(started.success, true);
+          const startRequest = requests.at(-1);
+          assert.equal(startRequest?.url.pathname, '/onvif/ptz_service');
+          assert.match(startRequest?.body ?? '', /<tptz:ContinuousMove>/);
+          assert.match(startRequest?.body ?? '', new RegExp(expectedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+          assert.match(startRequest?.body ?? '', /<tptz:ProfileToken>profile-token<\/tptz:ProfileToken>/);
+          assert.match(startRequest?.body ?? '', /<wsse:Username>operator<\/wsse:Username>/);
+          assert.match(startRequest?.body ?? '', /#PasswordDigest">[^<]+<\/wsse:Password>/);
+
+          const stopped = await service.controlPTZ(camera.id, 'stop');
+          assert.equal(stopped.success, true);
+          const stopRequest = requests.at(-1);
+          assert.equal(stopRequest?.url.pathname, '/onvif/ptz_service');
+          assert.match(stopRequest?.body ?? '', /<tptz:Stop>/);
+          assert.match(stopRequest?.body ?? '', /<tptz:PanTilt>true<\/tptz:PanTilt>/);
+          assert.match(stopRequest?.body ?? '', /<tptz:Zoom>true<\/tptz:Zoom>/);
+        }
+        assert.equal(requests.filter((request) => request.body.includes('<tds:GetServices>')).length, 1);
+        const profileRequest = requests.find((request) => request.body.includes('<trt:GetProfiles'));
+        assert.ok(profileRequest);
+        assert.equal(profileRequest.url.pathname, '/onvif/media_service');
+        assert.equal(requests.filter((request) => request.body.includes('<tptz:GetNodes')).length, 1);
+      } finally {
+        globalThis.fetch = originalFetch;
+        await service.shutdown();
+      }
+    });
+
+    test('does not report simulated movement as success for mock cameras', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'Mock PTZ Camera',
+        brand: 'dahua',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'ptz-secret',
+      });
+      const service = new CameraService(repo);
+
+      const result = await service.controlPTZ(camera.id, 'up');
+
+      assert.equal(result.success, false);
+      assert.match(result.message, /unavailable for mock/i);
+    });
+  });
+
+  describe('3b. Shared-stream lifecycle', () => {
+    test('MJPEG parser only emits complete JPEG frames', () => {
+      const parser = new MjpegFrameParser();
+      const frameStart = Buffer.from([0xff, 0xd8, 0x01, 0x02]);
+
+      assert.deepEqual(parser.push(frameStart), []);
+      assert.deepEqual(parser.push(Buffer.from([0x03, 0xff])), []);
+      const complete = parser.push(Buffer.from([0xd9]));
+
+      assert.equal(complete.length, 1);
+      assert.deepEqual(complete[0], Buffer.from([0xff, 0xd8, 0x01, 0x02, 0x03, 0xff, 0xd9]));
+    });
+
+    test('MJPEG endpoint returns a decodable JPEG and marks ONLINE only after a frame', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'MJPEG Endpoint Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'stream-secret',
+      });
+      const service = new CameraService(repo);
+      const app = express();
+      app.use('/api/cameras', createCameraRouter(new CameraController(service)));
+      const server = app.listen(0, '127.0.0.1');
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), 10000);
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once('listening', resolve);
+          server.once('error', reject);
+        });
+        await service.initialize();
+        const address = server.address();
+        assert.ok(address && typeof address !== 'string');
+
+        const response = await fetch(
+          `http://127.0.0.1:${address.port}/api/cameras/${camera.id}/stream`,
+          { signal: abortController.signal }
+        );
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get('content-type') ?? '', /multipart\/x-mixed-replace/);
+        assert.ok(response.body);
+        reader = response.body.getReader();
+
+        const parser = new MjpegFrameParser();
+        let jpeg: Buffer | undefined;
+        while (!jpeg) {
+          const result = await reader.read();
+          assert.equal(result.done, false, 'MJPEG response ended before a complete JPEG frame arrived');
+          const frames = parser.push(Buffer.from(result.value));
+          if (frames.length > 0) jpeg = frames[0];
+        }
+
+        assert.deepEqual(jpeg.subarray(0, 2), Buffer.from([0xff, 0xd8]));
+        assert.deepEqual(jpeg.subarray(-2), Buffer.from([0xff, 0xd9]));
+        const decoded = spawnSync(
+          ffmpegInstaller.path,
+          ['-hide_banner', '-loglevel', 'error', '-f', 'mjpeg', '-i', 'pipe:0', '-frames:v', '1', '-f', 'null', '-'],
+          { input: jpeg, timeout: 5000 }
+        );
+        assert.equal(decoded.status, 0, decoded.stderr.toString());
+        assert.equal((await service.getCameraStatus(camera.id)).status, 'ONLINE');
+        assert.ok((service['streamDiagnostics'].get(camera.id)?.framesReceived ?? 0) > 0);
+      } finally {
+        clearTimeout(timeout);
+        await reader?.cancel().catch(() => undefined);
+        abortController.abort();
+        await service.shutdown();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    });
+
+    test('repeated start requests reuse the existing FFmpeg process', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'Stream Lifecycle Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'stream-secret',
+      });
+      const service = new CameraService(repo);
+
+      try {
+        await service.initialize();
+        const firstProcess = service['processes'].get(camera.id);
+        assert.ok(firstProcess);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        assert.ok((service['streamDiagnostics'].get(camera.id)?.framesReceived ?? 0) > 0);
+
+        await service.toggleCamera(camera.id, true);
+
+        assert.equal(service['processes'].get(camera.id), firstProcess);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    test('kills a live FFmpeg process when JPEG frames stall', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'Stream Stall Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'stream-secret',
+      });
+      const service = new CameraService(repo);
+
+      try {
+        await service.initialize();
+        const process = service['processes'].get(camera.id);
+        const diagnostics = service['streamDiagnostics'].get(camera.id);
+        assert.ok(process);
+        assert.ok(diagnostics);
+
+        diagnostics.lastFrameAt = Date.now() - 21_000;
+        service['checkStreamHealth'](camera.id, process, diagnostics);
+
+        assert.equal(diagnostics.stalled, true);
+        assert.equal(process.killed, true);
+        assert.equal((await service.getCameraStatus(camera.id)).status, 'ERROR');
+      } finally {
+        await service.shutdown();
+      }
+    });
+  });
+
+  describe('3c. Shared-stream recording', () => {
+    test('finalizes a playable MP4, lists it, and rejects path traversal', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'Recording Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'recording-secret',
+      });
+      const service = new CameraService(repo);
+      const recordingsDir = path.resolve(__dirname, '../data/recordings');
+      const createdDirectory = !fs.existsSync(recordingsDir);
+      let recordingId: string | undefined;
+
+      try {
+        const started = await service.startRecording(camera.id, 30);
+        recordingId = started.id;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const completed = await service.stopRecording(camera.id, started.id);
+
+        assert.equal(completed.id, started.id);
+        assert.ok(completed.sizeBytes > 1024);
+        const filePath = service.getRecordingPath(camera.id, started.id);
+        assert.ok(filePath);
+        assert.equal(path.extname(filePath), '.mp4');
+
+        const listed = await service.listRecordings(camera.id);
+        assert.ok(listed.some((item) => item.id === started.id));
+        assert.equal(service.getRecordingPath(camera.id, `..\\${started.id}`), null);
+
+        await new Promise<void>((resolve, reject) => {
+          const validator = spawn(ffmpegInstaller.path, [
+            '-hide_banner',
+            '-loglevel', 'error',
+            '-i', filePath,
+            '-map', '0:v:0',
+            '-frames:v', '1',
+            '-f', 'rawvideo',
+            '-pix_fmt', 'rgb24',
+            'pipe:1',
+          ], { stdio: ['ignore', 'pipe', 'pipe'] });
+          let decodedFrameBytes = 0;
+          validator.stdout?.on('data', (chunk: Buffer) => {
+            decodedFrameBytes += chunk.length;
+          });
+          validator.on('error', reject);
+          validator.on('close', (code) => {
+            if (code === 0 && decodedFrameBytes > 0) resolve();
+            else if (code === 0) reject(new Error('Recorded MP4 contains no decodable video frames.'));
+            else reject(new Error(`Recorded MP4 decoder exited with code ${code}.`));
+          });
+        });
+      } finally {
+        await service.shutdown();
+        if (recordingId) {
+          const filePath = service.getRecordingPath(camera.id, recordingId);
+          if (filePath) fs.unlinkSync(filePath);
+        }
+        if (createdDirectory && fs.existsSync(recordingsDir) && fs.readdirSync(recordingsDir).length === 0) {
+          fs.rmdirSync(recordingsDir);
+        }
+      }
     });
   });
 

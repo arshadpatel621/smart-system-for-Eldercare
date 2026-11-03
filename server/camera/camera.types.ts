@@ -206,7 +206,15 @@ export interface DiscoveredCamera {
 
 // ─── PTZ ─────────────────────────────────────────────────────────────────────
 
-export type PTZDirection = 'left' | 'right' | 'up' | 'down' | 'home';
+export type PTZDirection =
+  | 'left'
+  | 'right'
+  | 'up'
+  | 'down'
+  | 'home'
+  | 'zoom_in'
+  | 'zoom_out'
+  | 'stop';
 
 export interface PTZCommand {
   action: PTZDirection;
@@ -236,6 +244,7 @@ export type AIEventType =
   | 'fall_detected'
   | 'inactivity_detected'
   | 'person_detected'
+  | 'person_detection_update'
   | 'face_recognized'
   | 'smoke_detected'
   | 'intrusion_detected';

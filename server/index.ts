@@ -72,10 +72,62 @@ const ALLOWED_AI_EVENT_TYPES: AIEventType[] = [
   'fall_detected',
   'inactivity_detected',
   'person_detected',
+  'person_detection_update',
   'face_recognized',
   'smoke_detected',
   'intrusion_detected',
 ];
+
+const sanitizePersonDetectionDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  const frameWidth = details.frameWidth;
+  const frameHeight = details.frameHeight;
+  const rawPersons = details.persons;
+  if (
+    !Number.isInteger(frameWidth) || Number(frameWidth) < 1 || Number(frameWidth) > 16384 ||
+    !Number.isInteger(frameHeight) || Number(frameHeight) < 1 || Number(frameHeight) > 16384 ||
+    !Array.isArray(rawPersons) || rawPersons.length > 50
+  ) {
+    return null;
+  }
+
+  const persons: Array<Record<string, unknown>> = [];
+  for (const rawPerson of rawPersons) {
+    if (!rawPerson || typeof rawPerson !== 'object' || Array.isArray(rawPerson)) return null;
+    const person = rawPerson as Record<string, unknown>;
+    const { trackId, confidence, state, reason, box, torsoAngle } = person;
+    if (
+      !(trackId === null || (Number.isInteger(trackId) && Number(trackId) >= 0)) ||
+      typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 ||
+      !['green', 'yellow', 'red'].includes(String(state)) ||
+      typeof reason !== 'string' || reason.length > 120 ||
+      !Array.isArray(box) || box.length !== 4 ||
+      !box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+    ) {
+      return null;
+    }
+
+    const [x1, y1, x2, y2] = box as number[];
+    if (x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 || x2 > Number(frameWidth) || y2 > Number(frameHeight)) {
+      return null;
+    }
+    if (torsoAngle !== null && (
+      typeof torsoAngle !== 'number' || !Number.isFinite(torsoAngle) || torsoAngle < 0 || torsoAngle > 90
+    )) {
+      return null;
+    }
+    persons.push({ trackId, confidence, state, reason, box, torsoAngle });
+  }
+
+  return {
+    frameWidth,
+    frameHeight,
+    persons,
+    personCount: persons.length,
+    cameraName: typeof details.cameraName === 'string' ? details.cameraName.slice(0, 100) : 'Camera',
+  };
+};
 
 // ── AI Event Receiver ──────────────────────────────────────────────────────
 /**
@@ -121,13 +173,20 @@ app.post('/api/events', (req: Request, res: Response) => {
     details && typeof details === 'object' && !Array.isArray(details)
       ? (details as Record<string, unknown>)
       : {};
+  const eventDetails = type === 'person_detection_update'
+    ? sanitizePersonDetectionDetails(safeDetails)
+    : safeDetails;
+  if (!eventDetails) {
+    res.status(400).json({ error: 'Invalid person detection update payload' });
+    return;
+  }
 
   const event: AIEvent = {
     type: type as AIEventType,
     cameraId: cameraId.trim(),
     timestamp: new Date().toISOString(),
     confidence: conf,
-    details: safeDetails,
+    details: eventDetails,
   };
 
   console.log(`[AI EVENT] ${event.type} on camera ${event.cameraId} (confidence: ${event.confidence})`);

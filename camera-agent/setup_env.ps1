@@ -124,6 +124,21 @@ dummy_img = np.zeros((320, 320, 3), dtype=np.uint8)
 results = model(dummy_img, classes=[0], verbose=False)
 print('Inference verified: classes filter [0] (person) configured.')
 print('YOLO environment is fully operational!')
+
+pose_model_path = os.path.join(models_dir, 'yolo11n-pose.pt')
+print('Loading YOLO11n pose model for posture-based fall detection...')
+pose_model = YOLO(pose_model_path if os.path.exists(pose_model_path) else 'yolo11n-pose.pt')
+if getattr(pose_model, 'task', None) != 'pose':
+    raise RuntimeError('The selected YOLO model does not provide pose keypoints.')
+if not os.path.exists(pose_model_path):
+    import shutil
+    cached_path = getattr(pose_model, 'ckpt_path', '')
+    if cached_path and os.path.exists(cached_path):
+        shutil.copyfile(cached_path, pose_model_path)
+pose_results = pose_model.track(dummy_img, persist=True, classes=[0], imgsz=320, verbose=False)
+if not pose_results:
+    raise RuntimeError('Pose model did not return an inference result.')
+print(f'Pose model ready: {pose_model_path}')
 "@
 
 & $venvPython -c $verifyScript

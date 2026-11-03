@@ -1,4 +1,4 @@
-import { useState } from 'react';
+   import { useState } from 'react';
 import { useCameraManager } from '../hooks/useCameraManager';
 import {
   BRAND_LABELS, LOCATION_LABELS,

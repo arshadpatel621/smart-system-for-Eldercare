@@ -4,6 +4,19 @@ import { CameraPlayer } from '../components/CameraPlayer';
 import { CameraStatus } from '../components/CameraStatus';
 import { fetchCameras, fetchAllStatuses, type CameraPublicRecord, type CameraStatus as CameraStatusType } from '../services/camera';
 
+type DetectionPerson = {
+  trackId: number | null;
+  confidence: number;
+  state: 'green' | 'yellow' | 'red';
+  reason: string;
+};
+
+type DetectionSnapshot = {
+  cameraId: string;
+  timestamp: string;
+  persons: DetectionPerson[];
+};
+
 /**
  * LiveMonitor renders the unified surveillance feed, health status parameters,
  * camera tabs switcher, and incident alert logging workflows.
@@ -17,6 +30,8 @@ export default function LiveMonitor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [aiEvents, setAiEvents] = useState<Array<{ type: string; cameraId: string; timestamp: string }>>([]);
+  const [detectionSnapshot, setDetectionSnapshot] = useState<DetectionSnapshot | null>(null);
+  const [clock, setClock] = useState(Date.now());
 
   // Plays a warning siren sound using browser-native synthesizer
   const playAlertSiren = useCallback(() => {
@@ -83,13 +98,28 @@ export default function LiveMonitor() {
     void loadCameras();
   }, [loadCameras]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Listen to WebSocket pushed updates
   useEffect(() => {
     const handleCameraAlert = (e: Event) => {
       const customEvent = e as CustomEvent;
       const eventDetails = customEvent.detail;
 
-      console.log('[AI REALTIME EVENT] Received alert:', eventDetails);
+      if (eventDetails.type === 'person_detection_update') {
+        const details = eventDetails.details;
+        if (details && Array.isArray(details.persons)) {
+          setDetectionSnapshot({
+            cameraId: eventDetails.cameraId,
+            timestamp: eventDetails.timestamp || new Date().toISOString(),
+            persons: details.persons as DetectionPerson[],
+          });
+        }
+        return;
+      }
 
       const isCriticalAlert = eventDetails.type === 'fall' || eventDetails.type === 'fall_detected';
       const isInactivityAlert = eventDetails.type === 'inactivity' || eventDetails.type === 'inactivity_detected';
@@ -111,12 +141,15 @@ export default function LiveMonitor() {
 
       // Automatically register the event in Firestore (persisted database) for safety incidents
       if (isCriticalAlert || isInactivityAlert) {
+        const trackId = eventDetails.details?.trackId;
         void createSafetyEvent({
           type: isCriticalAlert ? 'fall' : 'inactivity',
           severity: isCriticalAlert ? 'critical' : 'warning',
           occurredAt: eventDetails.timestamp || new Date().toISOString(),
           location: eventDetails.cameraId,
-          note: `Real-time AI Notification: ${eventDetails.type.toUpperCase()} alert triggered automatically.`,
+          note: isCriticalAlert
+            ? `AI fall alert for tracked person ${trackId ?? 'unknown'}; verify the live feed immediately.`
+            : `Real-time AI notification: ${eventDetails.type.toUpperCase()} alert triggered automatically.`,
           resolved: false,
         });
       }
@@ -204,7 +237,10 @@ export default function LiveMonitor() {
               return (
                 <button
                   key={cam.id}
-                  onClick={() => setActiveCameraId(cam.id)}
+                  onClick={() => {
+                    setActiveCameraId(cam.id);
+                    setDetectionSnapshot(null);
+                  }}
                   className={`px-6 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
                     isActive
                       ? 'border-blue-600 text-blue-600'
@@ -239,6 +275,59 @@ export default function LiveMonitor() {
                   reconnectAttempts: 0,
                 }}
               />
+
+              <section className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm" aria-live="polite">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-700">
+                    <span className="material-symbols-outlined text-lg text-blue-600">person_search</span>
+                    Live AI detection
+                  </h2>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                    detectionSnapshot?.cameraId === activeCameraId && clock - Date.parse(detectionSnapshot.timestamp) < 3000
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {detectionSnapshot?.cameraId === activeCameraId && clock - Date.parse(detectionSnapshot.timestamp) < 3000
+                      ? 'LIVE'
+                      : 'WAITING'}
+                  </span>
+                </div>
+                {detectionSnapshot?.cameraId === activeCameraId && clock - Date.parse(detectionSnapshot.timestamp) < 3000 ? (
+                  detectionSnapshot.persons.length > 0 ? (
+                    <div className="space-y-2">
+                      {detectionSnapshot.persons.map((person, index) => {
+                        const styles = person.state === 'red'
+                          ? 'border-rose-200 bg-rose-50 text-rose-800'
+                          : person.state === 'yellow'
+                            ? 'border-amber-200 bg-amber-50 text-amber-800'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                        return (
+                          <div key={`${person.trackId ?? 'untracked'}-${index}`} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${styles}`}>
+                            <div>
+                              <p className="text-xs font-bold">
+                                {person.trackId === null ? 'Person' : `Person ${person.trackId}`} · {person.state.toUpperCase()}
+                              </p>
+                              <p className="mt-0.5 text-[10px] opacity-80">{person.reason}</p>
+                            </div>
+                            <span
+                              className="shrink-0 text-xs font-bold"
+                              title="Person detector confidence; not a calibrated fall probability"
+                            >
+                              DET {Math.round(person.confidence * 100)}%
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">No people currently detected.</p>
+                  )
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                    AI feed not reporting. Start the camera agent to enable person and fall detection.
+                  </p>
+                )}
+              </section>
 
               {/* Real-time AI Event Alerts Logs */}
               {aiEvents.length > 0 && (
@@ -284,7 +373,7 @@ export default function LiveMonitor() {
                   </button>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4 text-xs text-slate-600 leading-relaxed">
-                  Real AI detection modules (OpenCV + MediaPipe) will automatically send events to the server endpoint (<code>POST /api/events</code>), writing directly to Firebase.
+                  The local YOLO pose agent streams detection updates to this dashboard. Red fall alerts are sent immediately and should be verified by a caregiver; model scores are not a substitute for clinical judgment.
                 </div>
               </div>
             </div>

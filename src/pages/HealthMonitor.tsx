@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useEldercare } from '../context/EldercareContext';
 import { useWatchManager } from '../hooks/useWatchManager';
 import { useNavigate } from 'react-router-dom';
@@ -16,8 +16,20 @@ const metricUnitMap: Record<MetricType, string> = {
   mood: '/5',
 };
 
+const metricRangeMap: Record<MetricType, { min: number; max: number; step: number }> = {
+  heart_rate: { min: 20, max: 250, step: 1 },
+  spo2: { min: 50, max: 100, step: 1 },
+  blood_pressure: { min: 50, max: 300, step: 1 },
+  sleep_hours: { min: 0, max: 24, step: 0.1 },
+  steps: { min: 0, max: 100000, step: 1 },
+  weight: { min: 1, max: 500, step: 0.1 },
+  hydration: { min: 0, max: 20, step: 0.1 },
+  calories: { min: 0, max: 20000, step: 1 },
+  mood: { min: 1, max: 5, step: 1 },
+};
+
 export default function HealthMonitor() {
-  const { data, latestVitals, createMetric } = useEldercare();
+  const { data, latestVitals, createMetric, error } = useEldercare();
   const { watches } = useWatchManager(data?.profile?.id);
   const navigate = useNavigate();
   const [form, setForm] = useState({
@@ -27,6 +39,9 @@ export default function HealthMonitor() {
     note: '',
     source: 'manual' as const,
   });
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   if (!data || !latestVitals) {
     return <div className="text-slate-500">Loading health monitor...</div>;
@@ -35,13 +50,54 @@ export default function HealthMonitor() {
   const connectedWearable = watches.find(w => w.connectionStatus === 'connected');
   const syncingWearable   = !connectedWearable && watches.find(w => w.connectionStatus === 'syncing');
   const activeWearable    = connectedWearable ?? syncingWearable ?? null;
+  const selectedMetricRange = metricRangeMap[form.type];
+
+  const handleMetricSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = Number(form.value);
+    const secondaryValue = Number(form.secondaryValue);
+
+    if (!form.value.trim() || !Number.isFinite(value) ||
+      value < selectedMetricRange.min || value > selectedMetricRange.max) {
+      setSaveError(`Enter a value from ${selectedMetricRange.min} to ${selectedMetricRange.max} ${metricUnitMap[form.type]}.`);
+      setSaveMessage('');
+      return;
+    }
+    if (form.type === 'blood_pressure' &&
+      (!form.secondaryValue.trim() || !Number.isFinite(secondaryValue) || secondaryValue < 30 || secondaryValue > 200)) {
+      setSaveError('Enter a diastolic value from 30 to 200 mmHg.');
+      setSaveMessage('');
+      return;
+    }
+
+    setSaving(true);
+    setSaveError('');
+    setSaveMessage('');
+    const saved = await createMetric({
+      type: form.type,
+      value,
+      secondaryValue: form.type === 'blood_pressure' ? secondaryValue : undefined,
+      unit: metricUnitMap[form.type],
+      source: form.source,
+      note: form.note,
+      recordedAt: new Date().toISOString(),
+    });
+    setSaving(false);
+
+    if (saved) {
+      setForm({ type: 'blood_pressure', value: '', secondaryValue: '', note: '', source: 'manual' });
+      setSaveMessage('Manual reading saved to your health records.');
+    } else {
+      setSaveError('Unable to save this reading. Please try again.');
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <header>
         <h1 className="text-4xl font-bold text-slate-800">Health Monitor</h1>
         <p className="text-slate-500 mt-2">
-          Real-time biometrics and historical health data for {data.profile.fullName}.
+          Latest recorded readings and health history for {data.profile.fullName}.
         </p>
       </header>
 
@@ -198,58 +254,90 @@ export default function HealthMonitor() {
 
         <form
           className="space-y-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void createMetric({
-              type: form.type,
-              value: Number(form.value),
-              secondaryValue: form.secondaryValue ? Number(form.secondaryValue) : undefined,
-              unit: metricUnitMap[form.type],
-              source: form.source,
-              note: form.note,
-              recordedAt: new Date().toISOString(),
-            });
-            setForm({ type: 'blood_pressure', value: '', secondaryValue: '', note: '', source: 'manual' });
-          }}
+          onSubmit={(event) => void handleMetricSubmit(event)}
         >
           <h2 className="text-2xl font-bold text-primary">Manual health entry</h2>
-          <select
-            className="w-full rounded-xl border border-slate-200 px-4 py-3"
-            value={form.type}
-            onChange={(event) => setForm({ ...form, type: event.target.value as MetricType })}
-          >
-            <option value="blood_pressure">Blood pressure</option>
-            <option value="heart_rate">Heart rate</option>
-            <option value="spo2">SpO2</option>
-            <option value="weight">Weight</option>
-            <option value="hydration">Hydration</option>
-            <option value="calories">Calories</option>
-            <option value="mood">Mood</option>
-          </select>
-          <input
-            className="w-full rounded-xl border border-slate-200 px-4 py-3"
-            type="number"
-            placeholder="Primary value"
-            value={form.value}
-            onChange={(event) => setForm({ ...form, value: event.target.value })}
-          />
-          {form.type === 'blood_pressure' ? (
+          <p className="text-sm text-slate-500">
+            These readings are saved as manual records and are not streamed from your watch.
+          </p>
+          <label className="block space-y-1.5 text-sm font-semibold text-slate-700">
+            <span>Measurement</span>
+            <select
+              className="w-full rounded-xl border border-slate-200 px-4 py-3"
+              value={form.type}
+              disabled={saving}
+              onChange={(event) => {
+                setForm({ ...form, type: event.target.value as MetricType });
+                setSaveError('');
+                setSaveMessage('');
+              }}
+            >
+              <option value="blood_pressure">Blood pressure</option>
+              <option value="heart_rate">Heart rate</option>
+              <option value="spo2">Blood oxygen (SpO₂)</option>
+              <option value="sleep_hours">Night sleep</option>
+              <option value="weight">Weight</option>
+              <option value="hydration">Hydration</option>
+              <option value="calories">Calories</option>
+              <option value="mood">Mood</option>
+            </select>
+          </label>
+          <label className="block space-y-1.5 text-sm font-semibold text-slate-700">
+            <span>Value ({metricUnitMap[form.type]})</span>
             <input
               className="w-full rounded-xl border border-slate-200 px-4 py-3"
               type="number"
-              placeholder="Diastolic value"
-              value={form.secondaryValue}
-              onChange={(event) => setForm({ ...form, secondaryValue: event.target.value })}
+              required
+              min={selectedMetricRange.min}
+              max={selectedMetricRange.max}
+              step={selectedMetricRange.step}
+              placeholder={`Enter ${form.type.replace('_', ' ')}`}
+              value={form.value}
+              disabled={saving}
+              onChange={(event) => {
+                setForm({ ...form, value: event.target.value });
+                setSaveError('');
+                setSaveMessage('');
+              }}
             />
+          </label>
+          {form.type === 'blood_pressure' ? (
+            <label className="block space-y-1.5 text-sm font-semibold text-slate-700">
+              <span>Diastolic value (mmHg)</span>
+              <input
+                className="w-full rounded-xl border border-slate-200 px-4 py-3"
+                type="number"
+                required
+                min="30"
+                max="200"
+                step="1"
+                value={form.secondaryValue}
+                disabled={saving}
+                onChange={(event) => setForm({ ...form, secondaryValue: event.target.value })}
+              />
+            </label>
           ) : null}
-          <textarea
-            className="min-h-24 w-full rounded-xl border border-slate-200 px-4 py-3"
-            placeholder="Symptoms or note"
-            value={form.note}
-            onChange={(event) => setForm({ ...form, note: event.target.value })}
-          />
-          <button className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white">
-            Save metric
+          <label className="block space-y-1.5 text-sm font-semibold text-slate-700">
+            <span>Note <span className="font-normal text-slate-500">(optional)</span></span>
+            <textarea
+              className="min-h-24 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal"
+              value={form.note}
+              disabled={saving}
+              onChange={(event) => setForm({ ...form, note: event.target.value })}
+            />
+          </label>
+          {saveError && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+              {saveError}{error ? ` ${error}` : ''}
+            </div>
+          )}
+          {saveMessage && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status" aria-live="polite">
+              {saveMessage}
+            </div>
+          )}
+          <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-60">
+            {saving ? 'Saving reading…' : 'Save manual reading'}
           </button>
         </form>
 
