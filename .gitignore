@@ -18,3 +18,12 @@ __pycache__/
 *.pt
 camera-agent/models/*.pt
 yolo*.pt
+# Local camera recordings
+/server/data/recordings/
+
+# Local camera test footage
+/camera-agent/*.mp4
+
+# Generated test images
+/camera-agent/test.jpg
+/camera-agent/test_frame.jpg
