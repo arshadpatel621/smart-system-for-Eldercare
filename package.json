@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:firestore-rules": "firebase emulators:exec --only firestore --project demo-vitalcare-rules \"node --test tests/firestore.rules.test.mjs\""
   },
   "dependencies": {
     "firebase": "^12.13.0",
@@ -16,6 +17,7 @@
     "react-router-dom": "^6.23.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
@@ -27,10 +29,16 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.6",
+    "firebase-tools": "^14.27.0",
     "postcss": "^8.4.38",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2",
     "vite": "^5.2.0"
+  },
+  "overrides": {
+    "faye-websocket": {
+      "websocket-driver": "0.7.5"
+    }
   }
 }

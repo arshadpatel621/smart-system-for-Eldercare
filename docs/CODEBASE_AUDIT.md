@@ -4,6 +4,8 @@
 **Audit type:** Read-only (no files modified, no dependencies installed, no destructive commands)
 **Generated as:** Phase 1 deliverable (`docs/CODEBASE_AUDIT.md`)
 
+> **Historical snapshot:** This initial audit predates the V2 migration and model cleanup. Its Roboflow/YOLO usage claims below are superseded by the current architecture in `ARCHITECTURE_AND_DEPLOYMENT.md`: V2 uses YOLO11n-Pose and the TCN-Transformer; the legacy Roboflow and standard YOLO box-only paths have been removed.
+
 ---
 
 ## 1. Current Architecture

@@ -4,6 +4,8 @@
 **Phase:** 2 - Refactoring Plan (for review; no destructive changes yet)
 **Principles:** Preserve YOLO11 and Camera Management; incremental, reversible; no new features.
 
+> **Superseded:** The approved V2 cleanup removed the legacy Roboflow detector and standard YOLO box-only weights. Keep `yolo11n-pose.pt` and the TCN-Transformer checkpoint for the active pipeline. Do not follow older retain/move recommendations for `person_tracker.py` or `yolo11n.pt` below.
+
 ---
 
 ## 1. Proposed Target Architecture (logical)

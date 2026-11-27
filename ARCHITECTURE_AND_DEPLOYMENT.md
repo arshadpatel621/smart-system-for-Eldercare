@@ -110,11 +110,28 @@ VITE_CAMERA_API_URL=http://localhost:5000
    - Frontend automatically falls back to the Node.js backend discovery if the Python agent is offline.
 
 ### Real-Time Person and Fall Detection
-- Install the camera-agent dependencies with `camera-agent/setup_env.ps1`, then set `ROBOFLOW_API_KEY` in `camera-agent/.env` (never commit that file).
-- Start the Node.js camera backend, then run `camera-agent/.venv/Scripts/python.exe camera-agent/person_tracker.py --camera-id <camera-id> --api-url http://localhost:5000` from the project root.
-- The tracker consumes the existing Node.js MJPEG stream (no separate RTSP connection), submits frames to Roboflow model `fall-detection-real/1`, and uses ByteTrack IDs. Sampling defaults to 3 FPS and is configurable with `--inference-fps` (maximum 5); camera capture and annotated streaming continue independently of inference requests.
-- Bounding boxes are green for `standing`, yellow for `falling` or an unconfirmed `fallen` prediction, and red only after a `fallen` prediction persists for 3 seconds across multiple samples. The 3-second temporal confirmation is intentional: `norman.mp4` is normal walking footage and its reported false `fallen` interval from about 6.0–8.4 seconds lasts only 2.4 seconds. Confidence is not raised to mask that model error. A confirmed incident is sent once through the existing `fall_detected` event pipeline and remains latched until stable standing recovery.
-- The local annotated MJPEG endpoint binds to `127.0.0.1` by default; do not expose it on a network interface without adding authentication and TLS. Alerts are advisory and require caregiver verification; do not use this feature as the sole emergency-monitoring mechanism.
+- VitalCare V2 runs locally with `camera-agent/models/yolo11n-pose.pt`, `tcn_transformer_10class_best.pth`, and `model_metadata.json`. It reads the existing Node.js MJPEG stream and does not open a second RTSP connection or use Roboflow.
+- Set `INTERNAL_SERVICE_KEY` in `server/.env` (do not commit or expose it). The V2 agent reads that key locally and sends activity, person-update, fall, and liveness events to the existing authenticated `POST /api/events` endpoint. The backend forwards accepted events to dashboard WebSocket clients.
+- Install the camera-agent dependencies with `camera-agent/setup_env.ps1`. Start each command in a separate PowerShell terminal from the repository root:
+
+  ```powershell
+  # Terminal 1: camera/API backend
+  Set-Location D:\eldercare\eldercare\server
+  npm run dev
+
+  # Terminal 2: React dashboard
+  Set-Location D:\eldercare\eldercare
+  npm run dev
+
+  # Terminal 3: local V2 inference for the registered living camera
+  Set-Location D:\eldercare\eldercare
+  .\camera-agent\.venv\Scripts\python.exe .\camera-agent\v2_inference.py --camera-id a54b71bd-1acc-44ae-9f1d-83304d4e6e5f --api-url http://localhost:5000
+  ```
+
+- Inference samples at 3 FPS by default, keeps an independent 16-frame pose history per tracked person, and publishes all ten class probabilities. Activity labels therefore begin only after the first 16 usable tracked poses (about 5.3 seconds at the default rate); a fall alert then requires three consecutive fall-class predictions with combined `FALL`/`FALLEN` probability of at least 0.75. Repeat alerts for the same track are subject to a 30-second cooldown. The agent selects CUDA when available and otherwise runs on CPU; `--device cpu` or `--device cuda:N` can override this. Alerts are advisory and require caregiver verification.
+- MJPEG reading runs on its own thread and passes sampled frames through a one-frame latest-only buffer, so slow inference drops stale samples rather than building a backlog. The backend likewise holds only the latest pending frame for a slow HTTP client. The agent uses one OS-level lock per camera and logs measured camera FPS, inference FPS, CPU utilization/core-equivalents, inference latency, frame age, and dropped frames every 10 seconds. Tune with `--fps`, `--image-size`, and `--torch-threads`; these affect inference only, not the browser video stream.
+- The camera video stream is independent of WebSocket availability. A websocket reconnect no longer reloads the MJPEG `<img>` stream; actual image errors retain their own retry.
+- The unused Roboflow tracker and standard YOLO box-only detector have been removed. V2 uses YOLO11n-Pose plus the trained TCN-Transformer. The Live Monitor reports AI Detection ONLINE only while it receives a recent V2 liveness event (15-second freshness window).
 
 ### Credential Security Architecture
 - **AES-256-CBC Encryption**: Camera passwords and custom RTSP URLs are encrypted before persistence in `server/data/cameras.json`.
