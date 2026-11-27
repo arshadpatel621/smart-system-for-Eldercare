@@ -90,43 +90,17 @@ if (-not (Test-Path $modelsDir)) {
     New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null
 }
 
-# 5. Verify YOLO model download and loading
-Write-Host "Verifying YOLO model and person detection..." -ForegroundColor Cyan
+# 5. Verify the pose model required by the V2 pipeline
+Write-Host "Verifying YOLO11n-Pose model..." -ForegroundColor Cyan
 $verifyScript = @"
 import os
-import sys
 import numpy as np
 from ultralytics import YOLO
 
 models_dir = os.path.join(r'$scriptDir', 'models')
 os.makedirs(models_dir, exist_ok=True)
-model_path = os.path.join(models_dir, 'yolo11n.pt')
-
-print('Loading YOLO11n model...')
-try:
-    if os.path.exists(model_path):
-        model = YOLO(model_path)
-    else:
-        model = YOLO('yolo11n.pt')
-        if hasattr(model, 'ckpt_path') and os.path.exists(model.ckpt_path):
-            import shutil
-            if os.path.abspath(model.ckpt_path) != os.path.abspath(model_path):
-                shutil.copyfile(model.ckpt_path, model_path)
-except Exception as e:
-    print(f'Retrying with yolov8n.pt: {e}')
-    model = YOLO('yolov8n.pt')
-    model_path = os.path.join(models_dir, 'yolov8n.pt')
-
-print(f'Model loaded successfully from: {model_path}')
-
-# Test inference on a synthetic test image (320x320 RGB)
-dummy_img = np.zeros((320, 320, 3), dtype=np.uint8)
-results = model(dummy_img, classes=[0], verbose=False)
-print('Inference verified: classes filter [0] (person) configured.')
-print('YOLO environment is fully operational!')
-
 pose_model_path = os.path.join(models_dir, 'yolo11n-pose.pt')
-print('Loading YOLO11n pose model for posture-based fall detection...')
+print('Loading the pose model required by V2...')
 pose_model = YOLO(pose_model_path if os.path.exists(pose_model_path) else 'yolo11n-pose.pt')
 if getattr(pose_model, 'task', None) != 'pose':
     raise RuntimeError('The selected YOLO model does not provide pose keypoints.')
@@ -135,10 +109,11 @@ if not os.path.exists(pose_model_path):
     cached_path = getattr(pose_model, 'ckpt_path', '')
     if cached_path and os.path.exists(cached_path):
         shutil.copyfile(cached_path, pose_model_path)
+dummy_img = np.zeros((320, 320, 3), dtype=np.uint8)
 pose_results = pose_model.track(dummy_img, persist=True, classes=[0], imgsz=320, verbose=False)
 if not pose_results:
     raise RuntimeError('Pose model did not return an inference result.')
-print(f'Pose model ready: {pose_model_path}')
+print(f'V2 pose model ready: {pose_model_path}')
 "@
 
 & $venvPython -c $verifyScript
