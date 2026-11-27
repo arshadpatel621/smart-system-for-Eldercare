@@ -27,7 +27,7 @@ export default function SignUp() {
       setFullName(user.displayName || '');
       setEmail(user.email || '');
     }
-  }, [user]);
+  }, [user, fullName]);
 
   if (initializing) {
     return (

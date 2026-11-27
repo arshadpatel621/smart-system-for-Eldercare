@@ -2,3 +2,58 @@ node_modules/
 dist/
 .env
 .expo/
+firestore-debug.log
+
+# Python Virtual Environments
+.venv/
+camera-agent/.venv/
+venv/
+ENV/
+
+# Python Caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# YOLO Pretrained Weights
+*.pt
+camera-agent/models/*.pt
+yolo*.pt
+# Local camera recordings
+/server/data/recordings/
+
+# Local camera test footage
+/camera-agent/*.mp4
+
+# Generated test images
+/camera-agent/test.jpg
+/camera-agent/test_frame.jpg
+
+# Runtime camera database (contains encrypted credentials; never commit)
+server/data/cameras.json
+server/data/snapshots/
+server/dist/data/
+server/dist/
+
+# Logs / generated test output (not project data)
+servererr.txt
+serverout.txt
+testout.txt
+pytestout.txt
+vc_hdrs2.txt
+firestore-debug.log
+
+# Temporary / generated images (not source assets)
+frame1.jpg
+liveframe.jpg
+camera-agent/probe0.jpg
+camera-agent/test.jpg
+camera-agent/test_frame.jpg
+
+# Model weights are not committed
+*.pt
+yolo*.pt
+camera-agent/models/
+camera-agent/*.pt
+.venv-v2/
+camera-agent/.venv-v2/

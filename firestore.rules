@@ -5,20 +5,22 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function hasUserProfile() {
-      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
     }
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    function userExists(uid) {
+      return exists(userPath(uid));
+    }
+
+    function userData(uid) {
+      return get(userPath(uid)).data;
     }
 
     function role() {
-      return hasUserProfile() ? userDoc().data.role : null;
-    }
-
-    function assignedElderId() {
-      return hasUserProfile() ? userDoc().data.elderId : null;
+      return signedIn() && userExists(request.auth.uid)
+        ? userData(request.auth.uid).role
+        : null;
     }
 
     function isAdmin() {
@@ -26,77 +28,201 @@ service cloud.firestore {
     }
 
     function isCaregiver() {
-      return role() == 'caregiver';
+      return role() == 'caregiver'
+        && (!('status' in userData(request.auth.uid))
+          || userData(request.auth.uid).status == 'active');
     }
 
     function isElder() {
       return role() == 'elder';
     }
 
-    function hasRelationship(elderId) {
-      return exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + elderId ))
-        || (hasUserProfile() && 'linkedElderIds' in userDoc().data && elderId in userDoc().data.linkedElderIds);
+    function elderIdPath(elderId) {
+      return /databases/$(database)/documents/elderIds/$(elderId);
+    }
+
+    function isActiveElderId(elderId, elderUid) {
+      let idPath = elderIdPath(elderId);
+      let profilePath = userPath(elderUid);
+      return exists(idPath)
+        && exists(profilePath)
+        && get(idPath).data.elderUid == elderUid
+        && get(idPath).data.elderId == elderId
+        && get(idPath).data.status == 'active'
+        && get(profilePath).data.role == 'elder'
+        && get(profilePath).data.elderId == elderId
+        && (!('status' in get(profilePath).data)
+          || get(profilePath).data.status == 'active');
+    }
+
+    function ownsElderIdAfter(uid, elderId) {
+      let path = elderIdPath(elderId);
+      return existsAfter(path)
+        && getAfter(path).data.elderUid == uid
+        && getAfter(path).data.elderId == elderId;
+    }
+
+    function relationshipPath(caregiverUid, elderId) {
+      return /databases/$(database)/documents/relationships/$(('rel-' + caregiverUid + '-' + elderId));
+    }
+
+    function hasActiveCaregiverRelationship(caregiverUid, elderUid, elderId) {
+      let path = relationshipPath(caregiverUid, elderId);
+      return exists(path)
+        && get(path).data.caregiverUid == caregiverUid
+        && get(path).data.elderUid == elderUid
+        && get(path).data.elderId == elderId
+        && get(path).data.status == 'active'
+        && isActiveElderId(elderId, elderUid);
     }
 
     function canAccessElder(elderId) {
-      return isAdmin() 
-        || (signedIn() && isElder() && (assignedElderId() == elderId || (hasUserProfile() && 'elderId' in userDoc().data && userDoc().data.elderId == elderId)))
-        || (signedIn() && isCaregiver() && (hasRelationship(elderId) || (hasUserProfile() && 'linkedElderIds' in userDoc().data && elderId in userDoc().data.linkedElderIds)))
-        || (signedIn() && request.resource.data.id == elderId);
+      return isAdmin()
+        || (signedIn()
+          && isElder()
+          && userData(request.auth.uid).elderId == elderId
+          && isActiveElderId(elderId, request.auth.uid))
+        || (signedIn()
+          && isCaregiver()
+          && hasActiveCaregiverRelationship(
+            request.auth.uid,
+            get(elderIdPath(elderId)).data.elderUid,
+            elderId
+          ));
     }
 
-    function canCaregiverAccessElderUser(targetUserData) {
-      return isCaregiver() && (
-        ('elderId' in targetUserData && hasRelationship(targetUserData.elderId)) ||
-        ('elderId' in targetUserData && hasUserProfile() && 'linkedElderIds' in userDoc().data && targetUserData.elderId in userDoc().data.linkedElderIds) ||
-        exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + targetUserData.elderId )) ||
-        exists(/databases/$(database)/documents/relationships/$( 'rel-' + request.auth.uid + '-' + targetUserData.uid ))
-      );
+    function canCaregiverAccessElderUser(targetUid, targetUserData) {
+      return isCaregiver()
+        && targetUserData.role == 'elder'
+        && 'elderId' in targetUserData
+        && hasActiveCaregiverRelationship(
+          request.auth.uid,
+          targetUid,
+          targetUserData.elderId
+        );
     }
 
     function canElderAccessCaregiverUser(targetCaregiverUid) {
-      return isElder() && (
-        exists(/databases/$(database)/documents/relationships/$( 'rel-' + targetCaregiverUid + '-' + assignedElderId() )) ||
-        exists(/databases/$(database)/documents/relationships/$( 'rel-' + targetCaregiverUid + '-' + request.auth.uid ))
-      );
+      return isElder()
+        && 'elderId' in userData(request.auth.uid)
+        && hasActiveCaregiverRelationship(
+          targetCaregiverUid,
+          request.auth.uid,
+          userData(request.auth.uid).elderId
+        );
     }
 
     match /users/{uid} {
-      // Allow create if authenticated and not self-assigning admin role
-      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role != 'admin';
-      // Secure read: self, admin, authorized linked caregiver, or linked elder
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role in ['caregiver', 'elder']
+        && (request.resource.data.role != 'elder'
+          || (request.resource.data.elderId.matches('^ELD-[A-Z0-9]{4,10}$')
+            && ownsElderIdAfter(uid, request.resource.data.elderId)));
       allow read: if signedIn() && (
-        request.auth.uid == uid ||
-        isAdmin() ||
-        canCaregiverAccessElderUser(resource.data) ||
-        canElderAccessCaregiverUser(uid)
+        request.auth.uid == uid
+        || isAdmin()
+        || canCaregiverAccessElderUser(uid, resource.data)
+        || canElderAccessCaregiverUser(uid)
       );
-      // Prevent normal users from altering their role field during updates
-      allow update: if signedIn() && (
-        isAdmin() || (request.auth.uid == uid && request.resource.data.role == resource.data.role)
-      );
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.authProvider == resource.data.authProvider
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (resource.data.role != 'elder'
+            || request.resource.data.elderId == resource.data.elderId
+            || (request.resource.data.elderId.matches('^ELD-[A-Z0-9]{4,10}$')
+              && ownsElderIdAfter(uid, request.resource.data.elderId))));
       allow delete: if isAdmin();
     }
 
     match /elderIds/{elderId} {
-      allow create, update: if signedIn() && request.resource.data.elderUid == request.auth.uid;
-      // Allow individual elderId lookup by ID for relationship linking, prevent collection scraping
+      allow create: if signedIn()
+        && !exists(elderIdPath(elderId))
+        && request.resource.data.keys().hasAll([
+          'elderUid',
+          'elderId',
+          'fullName',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'elderUid',
+          'elderId',
+          'fullName',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.elderUid == request.auth.uid
+        && request.resource.data.elderId == elderId
+        && request.resource.data.status == 'active'
+        && getAfter(userPath(request.auth.uid)).data.role == 'elder'
+        && getAfter(userPath(request.auth.uid)).data.elderId == elderId;
       allow get: if signedIn();
       allow list: if isAdmin();
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.elderUid == request.auth.uid
+          && request.resource.data.elderUid == resource.data.elderUid
+          && request.resource.data.elderId == resource.data.elderId
+          && request.resource.data.elderId == elderId
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'fullName',
+            'createdAt',
+            'updatedAt'
+          ])
+          && userExists(request.auth.uid)
+          && userData(request.auth.uid).role == 'elder'
+          && userData(request.auth.uid).elderId == elderId);
       allow delete: if isAdmin();
     }
 
-    match /relationships/{relId} {
-      allow create: if signedIn() 
-        && (isCaregiver() || isAdmin()) 
-        && request.resource.data.caregiverUid == request.auth.uid 
-        && request.resource.data.status == 'active';
+    match /relationships/{relationshipId} {
+      allow create: if signedIn()
+        && isCaregiver()
+        && request.resource.data.keys().hasAll([
+          'id',
+          'caregiverUid',
+          'elderUid',
+          'elderId',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'caregiverUid',
+          'elderUid',
+          'elderId',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.id == relationshipId
+        && request.resource.data.caregiverUid == request.auth.uid
+        && request.resource.data.elderId.matches('^ELD-[A-Z0-9]{4,10}$')
+        && relationshipId == 'rel-' + request.auth.uid + '-' + request.resource.data.elderId
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && isActiveElderId(
+          request.resource.data.elderId,
+          request.resource.data.elderUid
+        );
       allow read: if signedIn() && (
-        request.auth.uid == resource.data.caregiverUid || 
-        request.auth.uid == resource.data.elderUid || 
-        isAdmin()
+        request.auth.uid == resource.data.caregiverUid
+        || request.auth.uid == resource.data.elderUid
+        || isAdmin()
       );
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['active', 'inactive'];
+      allow delete: if isAdmin();
     }
 
     match /elders/{elderId} {

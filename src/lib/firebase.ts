@@ -1,6 +1,12 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 import { getAnalytics, isSupported, type Analytics } from 'firebase/analytics';
 
 const firebaseConfig = {
@@ -33,7 +39,22 @@ if (hasFirebaseConfig) {
   try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
-    db = getFirestore(app);
+
+    // Initialize Firestore with long-polling and multi-tab persistent cache.
+    // experimentalForceLongPolling prevents ERR_QUIC_PROTOCOL_ERROR.QUIC_TOO_MANY_RTOS
+    // when network UDP packets are dropped or unstable, and persistentLocalCache provides
+    // seamless offline data persistence during network reconnections.
+    try {
+      db = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      });
+    } catch {
+      db = getFirestore(app);
+    }
+
     void setPersistence(auth, browserLocalPersistence);
 
     if (typeof window !== 'undefined') {

@@ -8,7 +8,7 @@
  *  - GET  /health      ← Health check endpoint
  */
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
@@ -18,9 +18,9 @@ import path from 'path';
 import { JsonCameraRepository } from './camera/camera.repository';
 import { CameraService } from './camera/camera.service';
 import { CameraController } from './camera/camera.controller';
-import { verifyEncryptionConfig } from './camera/camera.crypto';
+import { verifyEncryptionConfig, verifyInternalSecret } from './camera/camera.crypto';
 import { createCameraRouter } from './camera/camera.routes';
-import type { AIEvent } from './camera/camera.types';
+import type { AIEvent, AIEventType } from './camera/camera.types';
 
 // ── Watch Module ────────────────────────────────────────────────────────────
 import { JsonWatchRepository } from './watch/watch.repository';
@@ -28,7 +28,9 @@ import { WatchService } from './watch/watch.service';
 import { WatchController } from './watch/watch.controller';
 import { createWatchRouter } from './watch/watch.routes';
 
-// Load env vars from server/.env
+// Load env vars from server/.env and root .env
+dotenv.config({ path: path.resolve(__dirname, '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'server/.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const PORT = process.env.PORT ?? 5000;
@@ -37,11 +39,16 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
 // ── Express App ────────────────────────────────────────────────────────────
 const app = express();
 
+const isAllowedOrigin = (origin: string): boolean => {
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+};
+
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow requests with no origin (server-to-server) or listed origins
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS: origin ${origin} not allowed`));
+    // Allow requests with no origin (server-to-server) or valid localhost/whitelisted origins
+    if (!origin || isAllowedOrigin(origin)) return cb(null, true);
+    cb(null, false);
   },
   credentials: true,
 }));
@@ -61,29 +68,271 @@ const watchController = new WatchController(watchService);
 
 app.use('/api/watches', createWatchRouter(watchController));
 
+const ALLOWED_AI_EVENT_TYPES: AIEventType[] = [
+  'fall_detected',
+  'inactivity_detected',
+  'person_detected',
+  'person_detection_update',
+  'activity_classified',
+  'v2_agent_status',
+  'face_recognized',
+  'smoke_detected',
+  'intrusion_detected',
+];
+
+const V2_ACTIVITY_CLASSES = [
+  'FALL',
+  'FALLEN',
+  'LIE_DOWN',
+  'LYING',
+  'OTHER',
+  'SIT_DOWN',
+  'SITTING',
+  'STAND_UP',
+  'STANDING',
+  'WALKING',
+] as const;
+const V2_ACTIVITY_SET = new Set<string>(V2_ACTIVITY_CLASSES);
+
+const sanitizePersonDetectionDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  const frameWidth = details.frameWidth;
+  const frameHeight = details.frameHeight;
+  const rawPersons = details.persons;
+  if (
+    !Number.isInteger(frameWidth) || Number(frameWidth) < 1 || Number(frameWidth) > 16384 ||
+    !Number.isInteger(frameHeight) || Number(frameHeight) < 1 || Number(frameHeight) > 16384 ||
+    !Array.isArray(rawPersons) || rawPersons.length > 50
+  ) {
+    return null;
+  }
+
+  const persons: Array<Record<string, unknown>> = [];
+  for (const rawPerson of rawPersons) {
+    if (!rawPerson || typeof rawPerson !== 'object' || Array.isArray(rawPerson)) return null;
+    const person = rawPerson as Record<string, unknown>;
+    const { trackId, confidence, state, reason, box, torsoAngle, keypoints, activity, activityConfidence } = person;
+    if (
+      !(trackId === null || (Number.isInteger(trackId) && Number(trackId) >= 0)) ||
+      typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 ||
+      !['green', 'yellow', 'red'].includes(String(state)) ||
+      typeof reason !== 'string' || reason.length > 120 ||
+      !Array.isArray(box) || box.length !== 4 ||
+      !box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+    ) {
+      return null;
+    }
+
+    const [x1, y1, x2, y2] = box as number[];
+    if (x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 || x2 > Number(frameWidth) || y2 > Number(frameHeight)) {
+      return null;
+    }
+    if (torsoAngle !== null && torsoAngle !== undefined && (
+      typeof torsoAngle !== 'number' || !Number.isFinite(torsoAngle) || torsoAngle < 0 || torsoAngle > 90
+    )) {
+      return null;
+    }
+
+    const sanitized: Record<string, unknown> = {
+      trackId,
+      confidence,
+      state,
+      reason,
+      box,
+      torsoAngle: torsoAngle === undefined ? null : torsoAngle,
+    };
+
+    if (keypoints !== undefined) {
+      if (!Array.isArray(keypoints) || keypoints.length !== 17) return null;
+      const safeKeypoints: Array<[number, number, number]> = [];
+      for (const point of keypoints) {
+        if (!Array.isArray(point) || point.length !== 3) return null;
+        const [x, y, c] = point as unknown[];
+        if (
+          typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > Number(frameWidth) ||
+          typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > Number(frameHeight) ||
+          typeof c !== 'number' || !Number.isFinite(c) || c < 0 || c > 1
+        ) {
+          return null;
+        }
+        safeKeypoints.push([x, y, c]);
+      }
+      sanitized.keypoints = safeKeypoints;
+    }
+
+    if (activity !== undefined) {
+      if (typeof activity !== 'string' || !V2_ACTIVITY_SET.has(activity as typeof V2_ACTIVITY_CLASSES[number])) return null;
+      sanitized.activity = activity;
+    }
+    if (activityConfidence !== undefined) {
+      if (typeof activityConfidence !== 'number' || !Number.isFinite(activityConfidence) || activityConfidence < 0 || activityConfidence > 1) return null;
+      sanitized.activityConfidence = activityConfidence;
+    }
+
+    persons.push(sanitized);
+  }
+
+  return {
+    frameWidth,
+    frameHeight,
+    persons,
+    personCount: persons.length,
+    cameraName: typeof details.cameraName === 'string' ? details.cameraName.slice(0, 100) : 'Camera',
+  };
+};
+
+const sanitizeActivityDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  const { trackId, activity, classProbabilities, frameWidth, frameHeight, box } = details;
+  if (
+    !Number.isInteger(trackId) || Number(trackId) < 0 ||
+    typeof activity !== 'string' || !V2_ACTIVITY_CLASSES.includes(activity as typeof V2_ACTIVITY_CLASSES[number]) ||
+    !classProbabilities || typeof classProbabilities !== 'object' || Array.isArray(classProbabilities) ||
+    !Number.isInteger(frameWidth) || Number(frameWidth) < 1 || Number(frameWidth) > 16384 ||
+    !Number.isInteger(frameHeight) || Number(frameHeight) < 1 || Number(frameHeight) > 16384
+  ) {
+    return null;
+  }
+
+  const scores = classProbabilities as Record<string, unknown>;
+  if (
+    Object.keys(scores).length !== V2_ACTIVITY_CLASSES.length ||
+    !V2_ACTIVITY_CLASSES.every((name) =>
+      typeof scores[name] === 'number' &&
+      Number.isFinite(scores[name]) &&
+      Number(scores[name]) >= 0 &&
+      Number(scores[name]) <= 1
+    )
+  ) {
+    return null;
+  }
+  const scoreTotal = V2_ACTIVITY_CLASSES.reduce((total, name) => total + Number(scores[name]), 0);
+  if (Math.abs(scoreTotal - 1) > 0.02) return null;
+
+  let safeBox: number[] | undefined;
+  if (box !== undefined) {
+    if (
+      !Array.isArray(box) || box.length !== 4 ||
+      !box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+    ) {
+      return null;
+    }
+    const [x1, y1, x2, y2] = box as number[];
+    if (
+      x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 ||
+      x2 > Number(frameWidth) || y2 > Number(frameHeight)
+    ) {
+      return null;
+    }
+    safeBox = box as number[];
+  }
+
+  return {
+    trackId,
+    activity,
+    classProbabilities: Object.fromEntries(
+      V2_ACTIVITY_CLASSES.map((name) => [name, Number(scores[name])]),
+    ),
+    frameWidth,
+    frameHeight,
+    ...(safeBox ? { box: safeBox } : {}),
+    model: 'VitalCare V2 TCN-Transformer',
+    poseModel: 'YOLO11n-Pose',
+  };
+};
+
+const sanitizeV2AgentStatusDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  if (details.status !== 'online' && details.status !== 'offline') return null;
+  const sanitized: Record<string, unknown> = {
+    status: details.status,
+    cameraName: typeof details.cameraName === 'string' ? details.cameraName.slice(0, 100) : 'Camera',
+    model: 'VitalCare V2 TCN-Transformer',
+    poseModel: 'YOLO11n-Pose',
+  };
+  if (details.metrics && typeof details.metrics === 'object' && !Array.isArray(details.metrics)) {
+    const metrics: Record<string, number> = {};
+    for (const [key, value] of Object.entries(details.metrics as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value)) metrics[key] = value;
+    }
+    if (Object.keys(metrics).length > 0) sanitized.metrics = metrics;
+  }
+  if (typeof details.annotatedStreamUrl === 'string' && details.annotatedStreamUrl.startsWith('http')) {
+    sanitized.annotatedStreamUrl = details.annotatedStreamUrl.slice(0, 300);
+  }
+  return sanitized;
+};
+
 // ── AI Event Receiver ──────────────────────────────────────────────────────
 /**
  * POST /api/events
  * Receives real-time AI alerts from external Python AI services.
- * Broadcasts to all connected dashboard WebSocket clients.
+ * Validates payload, checks internal authorization token, and broadcasts to dashboard WebSockets.
  *
  * Expected payload:
- *  { type: 'fall_detected', cameraId: 'xxx', confidence: 0.92, details: {} }
+ *  { type: 'person_detected', cameraId: 'xxx', confidence: 0.92, details: {} }
  */
-app.post('/api/events', (req, res) => {
+app.post('/api/events', (req: Request, res: Response) => {
+  const internalHeader = req.headers['x-internal-secret'] || req.headers['authorization'];
+  if (!verifyInternalSecret(internalHeader)) {
+    res.status(401).json({ error: 'Unauthorized: valid internal service key required' });
+    return;
+  }
+
   const { type, cameraId, confidence, details } = req.body as Partial<AIEvent>;
 
-  if (!type || !cameraId) {
-    res.status(400).json({ error: 'Required fields: type, cameraId' });
+  if (!type || typeof type !== 'string' || !ALLOWED_AI_EVENT_TYPES.includes(type as AIEventType)) {
+    res.status(400).json({
+      error: `Invalid or missing field "type". Allowed: ${ALLOWED_AI_EVENT_TYPES.join(', ')}`,
+    });
+    return;
+  }
+
+  if (!cameraId || typeof cameraId !== 'string' || !cameraId.trim()) {
+    res.status(400).json({ error: 'Field "cameraId" must be a non-empty string' });
+    return;
+  }
+
+  let conf = 1.0;
+  if (confidence !== undefined) {
+    const parsedConf = Number(confidence);
+    if (isNaN(parsedConf) || parsedConf < 0 || parsedConf > 1) {
+      res.status(400).json({ error: 'Field "confidence" must be a number between 0.0 and 1.0' });
+      return;
+    }
+    conf = parsedConf;
+  }
+
+  const safeDetails =
+    details && typeof details === 'object' && !Array.isArray(details)
+      ? (details as Record<string, unknown>)
+      : {};
+  const eventDetails = type === 'person_detection_update'
+    ? sanitizePersonDetectionDetails(safeDetails)
+    : type === 'activity_classified'
+      ? sanitizeActivityDetails(safeDetails)
+      : type === 'v2_agent_status'
+        ? sanitizeV2AgentStatusDetails(safeDetails)
+    : safeDetails;
+  if (!eventDetails) {
+    const error = type === 'person_detection_update'
+      ? 'Invalid person detection update payload'
+      : type === 'activity_classified'
+        ? 'Invalid activity classification payload'
+        : 'Invalid V2 agent status payload';
+    res.status(400).json({ error });
     return;
   }
 
   const event: AIEvent = {
-    type: type as AIEvent['type'],
-    cameraId,
+    type: type as AIEventType,
+    cameraId: cameraId.trim(),
     timestamp: new Date().toISOString(),
-    confidence: confidence ?? 1.0,
-    details: details ?? {},
+    confidence: conf,
+    details: eventDetails,
   };
 
   console.log(`[AI EVENT] ${event.type} on camera ${event.cameraId} (confidence: ${event.confidence})`);
@@ -101,7 +350,7 @@ app.post('/api/events', (req, res) => {
 });
 
 // ── Health Check ───────────────────────────────────────────────────────────
-app.get('/health', async (_req, res) => {
+app.get('/health', async (_req: Request, res: Response) => {
   const cameras = await cameraService.getCameras();
   const statuses = await cameraService.getAllStatuses();
   res.json({
@@ -116,6 +365,29 @@ app.get('/health', async (_req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Surface duplicate-server startup failures as an actionable diagnostic instead
+// of an unhandled WebSocketServer error (the common EADDRINUSE case on port 5000).
+wss.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[SERVER] Port ${PORT} is already in use. Stop the other VitalCare server process or set PORT to a free port.`);
+  } else {
+    console.error('[SERVER] HTTP/WebSocket listener error:', err.message);
+  }
+  // A duplicate server instance would spawn a second set of FFmpeg processes
+  // against the same cameras; exit instead of running half-initialized.
+  killAllStreamsSafe();
+  process.exit(1);
+});
+
+// HTTP listen errors are re-emitted on wss, but attach directly too for safety.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[SERVER] Port ${PORT} is already in use. Stop the other VitalCare server process or set PORT to a free port.`);
+    killAllStreamsSafe();
+    process.exit(1);
+  }
+});
+
 wss.on('connection', async (ws: WebSocket) => {
   console.log('[WS] Dashboard client connected');
 
@@ -123,11 +395,12 @@ wss.on('connection', async (ws: WebSocket) => {
   try {
     const statuses = await cameraService.getAllStatuses();
     ws.send(JSON.stringify({ type: 'camera_statuses', data: statuses }));
-  } catch (err: any) {
-    console.error('[WS] Snapshot failed:', err.message);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[WS] Snapshot failed:', msg);
   }
 
-  ws.on('message', (raw: any) => {
+  ws.on('message', (raw: Buffer | string) => {
     try {
       const msg = JSON.parse(raw.toString());
       console.log('[WS] Client message:', msg);
@@ -163,25 +436,43 @@ server.listen(PORT, async () => {
 });
 
 let isShuttingDown = false;
+
+/** Best-effort synchronous kill of all FFmpeg children; safe to call on exit. */
+function killAllStreamsSafe(): void {
+  try { cameraService.killAllStreams(); } catch { /* noop */ }
+}
+
 const shutdown = async (signal: string) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n[SERVER] Received ${signal}, shutting down gracefully...`);
-  
+
   await cameraService.shutdown();
-  
+
   server.close(() => {
     console.log('[SERVER] HTTP server closed.');
+    killAllStreamsSafe();
     process.exit(0);
   });
-  
+
   // Force exit if taking too long
   setTimeout(() => {
     console.error('[SERVER] Could not close connections in time, forcefully shutting down');
+    killAllStreamsSafe();
     process.exit(1);
   }, 3000);
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGUSR2', () => shutdown('SIGUSR2')); // ts-node-dev / nodemon
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGHUP', () => void shutdown('SIGHUP'));
+process.on('SIGUSR2', () => void shutdown('SIGUSR2')); // ts-node-dev / nodemon
+
+// Never leave orphaned FFmpeg processes holding camera RTSP sessions.
+process.on('exit', () => killAllStreamsSafe());
+process.on('uncaughtException', (err) => {
+  console.error('[SERVER] Uncaught exception:', err);
+  killAllStreamsSafe();
+  process.exit(1);
+});
+// Do not swallow unhandled rejections; let them surface. 'exit' kills children.

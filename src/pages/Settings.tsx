@@ -24,8 +24,8 @@ export default function Settings() {
     try {
       await resetPassword(profile.email);
       setSecurityMessage(`Password reset link sent to ${profile.email}. Check your inbox.`);
-    } catch (err: any) {
-      setSecurityError(err.message || 'Failed to send password reset email.');
+    } catch (err: unknown) {
+      setSecurityError((err as Error)?.message || 'Failed to send password reset email.');
     } finally {
       setSendingReset(false);
     }
@@ -35,8 +35,8 @@ export default function Settings() {
     try {
       await logout();
       navigate('/login');
-    } catch (err: any) {
-      setSecurityError(err.message || 'Failed to sign out.');
+    } catch (err: unknown) {
+      setSecurityError((err as Error)?.message || 'Failed to sign out.');
     }
   };
 
@@ -49,12 +49,12 @@ export default function Settings() {
 
       <div className="flex flex-col md:flex-row gap-8">
         <aside className="w-full md:w-64 shrink-0 space-y-2">
-          {[
+          {([
             { id: 'profile', icon: 'person', label: 'My Profile' },
             { id: 'preferences', icon: 'settings', label: 'Preferences' },
             { id: 'security', icon: 'shield', label: 'Security' }
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+          ] as const).map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all text-left ${
                 activeTab === tab.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'
               }`}>
@@ -154,7 +154,7 @@ export default function Settings() {
               
               <div>
                 <h3 className="font-bold text-slate-800 mb-2">Change Password</h3>
-                <p className="text-sm text-slate-500 mb-4">We'll send an official Firebase password reset link to your email ({profile?.email || 'unregistered'}).</p>
+                <p className="text-sm text-slate-500 mb-4">We&apos;ll send an official Firebase password reset link to your email ({profile?.email || 'unregistered'}).</p>
                 <button
                   onClick={handleSendReset}
                   disabled={sendingReset}

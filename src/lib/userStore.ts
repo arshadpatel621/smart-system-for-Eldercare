@@ -214,8 +214,8 @@ export async function reserveElderIdAtomic(
 
       reserved = true;
       writeCachedProfile(currentProfile);
-    } catch (err: any) {
-      if (err?.message === 'COLLISION') {
+    } catch (err: unknown) {
+      if ((err as Error)?.message === 'COLLISION') {
         let newId = 'ELD-';
         for (let i = 0; i < 6; i++) {
           newId += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -347,13 +347,9 @@ export async function signUpWithEmail(input: SignUpInput) {
 
   // If registering as caregiver with an Elder ID, create the relationship record
   if (profile.role === 'caregiver' && rawElderId) {
-    try {
-      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
-      if (!linkResult.success) {
-        console.warn('[signUpWithEmail] Initial elder connection notice:', linkResult.message);
-      }
-    } catch (linkErr) {
-      console.warn('[signUpWithEmail] Caregiver linking error:', linkErr);
+    const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+    if (!linkResult.success) {
+      throw new Error(linkResult.message);
     }
   }
 
@@ -394,13 +390,9 @@ export async function saveProfileForCurrentUser(
   }
 
   if (profile.role === 'caregiver' && rawElderId) {
-    try {
-      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
-      if (!linkResult.success) {
-        console.warn('[saveProfileForCurrentUser] Initial elder connection notice:', linkResult.message);
-      }
-    } catch (linkErr) {
-      console.warn('[saveProfileForCurrentUser] Caregiver linking error:', linkErr);
+    const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+    if (!linkResult.success) {
+      throw new Error(linkResult.message);
     }
   }
 
@@ -453,4 +445,3 @@ export async function sendPasswordReset(email: string) {
 }
 
 export { formatFirebaseError };
-

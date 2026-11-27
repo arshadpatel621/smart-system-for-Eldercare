@@ -170,28 +170,129 @@ export function resolveRtspPath(template: string, channel: number = 1): string {
 }
 
 /**
- * Builds a complete RTSP URL from parts, never logging the password.
+ * Normalizes RTSP path or URI:
+ * - If already a full RTSP URI, preserves it.
+ * - If a relative path, ensures a leading slash and preserves queries without double encoding.
+ */
+export function normalizeRtspPath(rtspPath: string = ''): string {
+  if (!rtspPath || !rtspPath.trim()) return '';
+  const trimmed = rtspPath.trim();
+  if (/^rtsp:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+export interface ParsedRtspTarget {
+  host: string;
+  port: number;
+  pathAndQuery: string;
+  username?: string;
+  password?: string;
+}
+
+/**
+ * Parses RTSP path or full URI into its components:
+ * Preserves host, port, path, and any query parameters intact.
+ */
+export function parseRtspTarget(
+  ipAddress: string,
+  defaultPort: number,
+  pathOrUri: string = ''
+): ParsedRtspTarget {
+  const trimmed = (pathOrUri || '').trim();
+  if (/^rtsp:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const isLoopback =
+        url.hostname === '127.0.0.1' ||
+        url.hostname === 'localhost' ||
+        url.hostname === '0.0.0.0';
+      const host = (!isLoopback && url.hostname) ? url.hostname : ipAddress;
+      const port = url.port ? Number(url.port) : defaultPort;
+      const pathAndQuery = (url.pathname || '/') + (url.search || '');
+      return {
+        host,
+        port,
+        pathAndQuery: pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`,
+        username: url.username ? decodeURIComponent(url.username) : undefined,
+        password: url.password ? decodeURIComponent(url.password) : undefined,
+      };
+    } catch {
+      const m = trimmed.match(/^rtsp:\/\/(?:([^:@]+)(?::([^@]+))?@)?([^/:]+)(?::(\d+))?(\/.*)?$/i);
+      if (m) {
+        const isLoopback = m[3] === '127.0.0.1' || m[3] === 'localhost' || m[3] === '0.0.0.0';
+        const host = (!isLoopback && m[3]) ? m[3] : ipAddress;
+        const port = m[4] ? Number(m[4]) : defaultPort;
+        const pathAndQuery = m[5] || '/';
+        return {
+          host,
+          port,
+          pathAndQuery: pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`,
+          username: m[1] ? decodeURIComponent(m[1]) : undefined,
+          password: m[2] ? decodeURIComponent(m[2]) : undefined,
+        };
+      }
+    }
+  }
+
+  const normalized = normalizeRtspPath(trimmed);
+  return {
+    host: ipAddress,
+    port: defaultPort,
+    pathAndQuery: normalized || '/',
+  };
+}
+
+/**
+ * Builds a complete RTSP URL from parts or existing URI:
+ * - Preserves host, port, path, and any query parameters.
+ * - Safely encodes credentials with encodeURIComponent without double-encoding the path.
+ * - Never logs or leaks plain passwords.
  */
 export function buildRtspUrl(
   ipAddress: string,
   port: number,
-  username: string,
-  password: string,
-  rtspPath: string
+  username?: string,
+  password?: string,
+  rtspPath: string = ''
 ): string {
-  const encodedUser = encodeURIComponent(username);
-  const encodedPass = encodeURIComponent(password);
-  return `rtsp://${encodedUser}:${encodedPass}@${ipAddress}:${port}${rtspPath}`;
+  const parsed = parseRtspTarget(ipAddress, port, rtspPath);
+  const finalUser = username !== undefined ? username : parsed.username;
+  const finalPass = password !== undefined ? password : parsed.password;
+
+  if (!finalUser && !finalPass) {
+    return `rtsp://${parsed.host}:${parsed.port}${parsed.pathAndQuery}`;
+  }
+
+  const encodedUser = finalUser ? encodeURIComponent(finalUser) : '';
+  const encodedPass = finalPass ? encodeURIComponent(finalPass) : '';
+  const auth = encodedPass
+    ? `${encodedUser}:${encodedPass}@`
+    : encodedUser
+    ? `${encodedUser}@`
+    : '';
+
+  return `rtsp://${auth}${parsed.host}:${parsed.port}${parsed.pathAndQuery}`;
 }
 
 /**
  * Builds a redacted RTSP URL for logging (password replaced with ***).
+ * Strictly guarantees passwords are never exposed.
  */
 export function buildRedactedRtspUrl(
   ipAddress: string,
   port: number,
-  username: string,
-  rtspPath: string
+  username?: string,
+  rtspPath: string = ''
 ): string {
-  return `rtsp://${username}:***@${ipAddress}:${port}${rtspPath}`;
+  const parsed = parseRtspTarget(ipAddress, port, rtspPath);
+  const finalUser = username !== undefined ? username : parsed.username;
+
+  if (!finalUser) {
+    return `rtsp://${parsed.host}:${parsed.port}${parsed.pathAndQuery}`;
+  }
+
+  const encodedUser = encodeURIComponent(finalUser);
+  return `rtsp://${encodedUser}:***@${parsed.host}:${parsed.port}${parsed.pathAndQuery}`;
 }

@@ -387,7 +387,7 @@ export async function runBLEConnectionTest(
     run(7);
     try {
       const infoService = await server.getPrimaryService('device_information');
-      let firmwareParts: string[] = [];
+      const firmwareParts: string[] = [];
 
       try {
         const fwChar = await infoService.getCharacteristic('firmware_revision_string');

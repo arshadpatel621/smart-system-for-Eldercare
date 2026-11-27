@@ -6,3 +6,8 @@ export interface Relationship {
   status: 'active' | 'inactive';
   createdAt: string;
 }
+
+export interface RelationshipRegistryEntry extends Relationship {
+  caregiverName: string;
+  elderName: string;
+}

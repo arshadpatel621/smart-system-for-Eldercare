@@ -15,7 +15,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { encrypt, decrypt, isEncrypted } from './camera.crypto';
+import { encrypt, decrypt } from './camera.crypto';
 import type {
   CameraRecord,
   CameraRepository,
@@ -35,7 +35,29 @@ function now(): string {
 
 // ─── JSON File Repository ─────────────────────────────────────────────────────
 
-const DB_PATH = path.resolve(__dirname, '../data/cameras.json');
+/**
+ * Resolve the persistent camera database location robustly for BOTH dev and prod.
+ *
+ * `__dirname` differs:
+ *   - source/dev (ts-node-dev): <repo>/server/camera
+ *   - compiled prod (node dist): <repo>/server/dist/camera
+ * The previous `path.resolve(__dirname,'../data/cameras.json')` read
+ * `<repo>/server/data/cameras.json` in dev but `<repo>/server/dist/data/cameras.json`
+ * in production, silently ignoring `server/data`. Resolve `<repo>/server/data`.
+ *
+ * Override with CAMERAS_DB_PATH (and/or VITALCARE_DATA_DIR) if needed.
+ */
+function resolveDbPath(): string {
+  if (process.env.CAMERAS_DB_PATH) return path.resolve(process.env.CAMERAS_DB_PATH);
+  const dataDir = process.env.VITALCARE_DATA_DIR;
+  if (dataDir) return path.resolve(dataDir, 'cameras.json');
+  // <repo>/server/camera -> server ; <repo>/server/dist/camera -> server
+  const inDist = path.basename(path.dirname(__dirname)) === 'dist';
+  const serverRoot = inDist ? path.resolve(__dirname, '..', '..') : path.resolve(__dirname, '..');
+  return path.join(serverRoot, 'data', 'cameras.json');
+}
+
+const DB_PATH = resolveDbPath();
 
 /**
  * JsonCameraRepository — stores camera records in a local JSON file.
@@ -46,15 +68,16 @@ const DB_PATH = path.resolve(__dirname, '../data/cameras.json');
  * class and inject it in index.ts. No service code changes required.
  */
 export class JsonCameraRepository implements CameraRepository {
+  constructor(private dbPath: string = DB_PATH) {}
 
   /** Reads all records from the JSON file. */
   private readAll(): CameraRecord[] {
     try {
-      if (!fs.existsSync(DB_PATH)) {
-        fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-        fs.writeFileSync(DB_PATH, JSON.stringify({ cameras: [] }, null, 2));
+      if (!fs.existsSync(this.dbPath)) {
+        fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
+        fs.writeFileSync(this.dbPath, JSON.stringify({ cameras: [] }, null, 2));
       }
-      const raw = fs.readFileSync(DB_PATH, 'utf8');
+      const raw = fs.readFileSync(this.dbPath, 'utf8');
       const parsed = JSON.parse(raw) as { cameras?: CameraRecord[] };
       return parsed.cameras ?? [];
     } catch (err) {
@@ -66,11 +89,11 @@ export class JsonCameraRepository implements CameraRepository {
   /** Writes all records back to the JSON file atomically. */
   private writeAll(cameras: CameraRecord[]): void {
     try {
-      fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+      fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
       // Write to a temp file first, then rename (atomic write)
-      const tmp = DB_PATH + '.tmp';
+      const tmp = this.dbPath + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify({ cameras }, null, 2));
-      fs.renameSync(tmp, DB_PATH);
+      fs.renameSync(tmp, this.dbPath);
     } catch (err) {
       console.error('[CameraRepository] Failed to write database:', err);
       throw new Error('Database write failed');
@@ -106,8 +129,15 @@ export class JsonCameraRepository implements CameraRepository {
       username: dto.username,
       passwordEncrypted,
       rtspUrlEncrypted,
-      enabled: false, // Cameras start disabled — user must explicitly enable
-      healthStatus: 'unknown',
+      enabled: dto.enabled !== undefined ? dto.enabled : true,
+      discoveredRtspPath: dto.discoveredRtspPath,
+      model: dto.model,
+      firmware: dto.firmware,
+      serialNumber: dto.serialNumber,
+      onvifVersion: dto.onvifVersion,
+      resolution: dto.resolution,
+      fps: dto.fps,
+      healthStatus: dto.healthStatus ?? 'healthy',
       createdAt: now(),
       updatedAt: now(),
     };
@@ -134,6 +164,14 @@ export class JsonCameraRepository implements CameraRepository {
       ...(dto.onvifPort !== undefined && { onvifPort: dto.onvifPort }),
       ...(dto.username !== undefined && { username: dto.username }),
       ...(dto.enabled !== undefined && { enabled: dto.enabled }),
+      ...(dto.discoveredRtspPath !== undefined && { discoveredRtspPath: dto.discoveredRtspPath }),
+      ...(dto.model !== undefined && { model: dto.model }),
+      ...(dto.firmware !== undefined && { firmware: dto.firmware }),
+      ...(dto.serialNumber !== undefined && { serialNumber: dto.serialNumber }),
+      ...(dto.onvifVersion !== undefined && { onvifVersion: dto.onvifVersion }),
+      ...(dto.resolution !== undefined && { resolution: dto.resolution }),
+      ...(dto.fps !== undefined && { fps: dto.fps }),
+      ...(dto.healthStatus !== undefined && { healthStatus: dto.healthStatus }),
       updatedAt: now(),
     };
 
@@ -173,7 +211,8 @@ export class JsonCameraRepository implements CameraRepository {
     id: string,
     metadata: Partial<Pick<CameraRecord,
       'model' | 'firmware' | 'serialNumber' | 'onvifVersion' |
-      'discoveredRtspPath' | 'resolution' | 'fps' | 'lastConnected' | 'healthStatus'
+      'discoveredRtspPath' | 'resolution' | 'fps' | 'lastConnected' | 'healthStatus' |
+      'port' | 'onvifPort'
     >>
   ): Promise<CameraRecord> {
     const cameras = this.readAll();

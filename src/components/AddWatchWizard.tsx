@@ -9,10 +9,13 @@
  * references, but the component returns null and does nothing.
  */
 
-export function AddWatchWizard(_props: {
-  onSave?: (...args: any[]) => any;
+export interface AddWatchWizardProps {
+  onSave?: (...args: unknown[]) => unknown;
   onClose?: () => void;
   saving?: boolean;
-}) {
+}
+
+export function AddWatchWizard(_props?: AddWatchWizardProps): null {
+  void _props;
   return null;
 }

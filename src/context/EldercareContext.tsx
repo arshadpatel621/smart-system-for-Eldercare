@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -52,7 +53,7 @@ interface EldercareContextValue {
   storageMode: 'firebase' | 'local';
   refresh: () => Promise<void>;
   updateProfile: (profile: ElderProfile) => Promise<void>;
-  createMetric: (metric: Omit<HealthMetric, 'id'>) => Promise<void>;
+  createMetric: (metric: Omit<HealthMetric, 'id'>) => Promise<boolean>;
   createMedication: (medication: Omit<Medication, 'id'> & { id?: string }) => Promise<void>;
   takeMedication: (medicationId: string, scheduledFor: string) => Promise<void>;
   createContact: (contact: Omit<CareContact, 'id'>) => Promise<void>;
@@ -107,7 +108,7 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
   const lastNotificationId = useRef<string | null>(null);
   const storageMode = getStorageMode();
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!activeElderId) {
       setData(null);
       setLoading(false);
@@ -122,29 +123,30 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     }
     
     // Only show loading if we don't have ANY data yet
-    if (!data) setLoading(true);
+    setData((current) => {
+      if (!current) setLoading(true);
+      return current;
+    });
     
     setError(null);
     try {
       const result = await loadEldercareData(activeElderId, profile?.fullName, isDemoUser);
       setData(result);
-    } catch (loadError: any) {
-      const errMsg = loadError?.message || String(loadError);
+    } catch (loadError: unknown) {
+      const errMsg = (loadError as Error)?.message || String(loadError);
       if (!errMsg.includes('Missing or insufficient permissions')) {
         console.warn('Firebase data load notice:', errMsg);
       }
-      if (!data) {
-        setData(loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
-      }
+      setData((current) => current || loadLocalEldercareData(activeElderId, profile?.fullName, isDemoUser));
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeElderId, user, profile, isDemoUser]);
 
   useEffect(() => {
     if (authLoading) return;
     void refresh();
-  }, [authLoading, activeElderId, isDemoUser]);
+  }, [authLoading, refresh]);
 
   const latestVitals = data ? getLatestVitals(data) : null;
   const derivedAlerts = useMemo(() => {
@@ -163,6 +165,8 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     }
     return buildRecommendations(data);
   }, [data]);
+
+  const setActiveElderId = useCallback((id: string | null) => setSelectedElderId(id), []);
 
   useEffect(() => {
     if (!derivedAlerts.length || !('Notification' in window) || Notification.permission !== 'granted') {
@@ -194,7 +198,7 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
   const value: EldercareContextValue = {
     data,
     activeElderId,
-    setActiveElderId: (id: string | null) => setSelectedElderId(id),
+    setActiveElderId,
     latestVitals,
     derivedAlerts,
     recommendations,
@@ -203,7 +207,25 @@ export function EldercareProvider({ children }: { children: ReactNode }) {
     storageMode,
     refresh,
     updateProfile: async (profile) => persist(() => saveProfile(profile, activeElderId!)),
-    createMetric: async (metric) => persist(() => addMetric(metric, activeElderId!)),
+    createMetric: async (metric) => {
+      if (!activeElderId) {
+        setError('No elder profile is assigned to this account.');
+        return false;
+      }
+
+      setError(null);
+      try {
+        const result = await addMetric(metric, activeElderId);
+        const sanitized = isDemoUser
+          ? result
+          : sanitizeRealAccountData(result, activeElderId, profile?.fullName);
+        setData(sanitized);
+        return true;
+      } catch (persistError) {
+        setError(formatFirebaseError(persistError));
+        return false;
+      }
+    },
     createMedication: async (medication) => persist(() => saveMedication(medication, activeElderId!)),
     takeMedication: async (medicationId, scheduledFor) =>
       persist(() => markMedicationTaken(medicationId, scheduledFor, activeElderId!)),

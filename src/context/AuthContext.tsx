@@ -106,9 +106,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         // Only clear error on successful profile load
         setError(null);
-      } catch (profileError: any) {
+      } catch (profileError: unknown) {
         // Firestore permissions error — show it clearly to the user
-        const msg: string = profileError?.message ?? String(profileError);
+        const msg: string = (profileError as Error)?.message ?? String(profileError);
         if (msg.includes('permission') || msg.includes('insufficient')) {
           setError(
             '⚠️ Firestore rules not deployed. Go to Firebase Console → Firestore → Rules and publish the rules. See console for details.'
@@ -125,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const runAuthAction = async (action: () => Promise<any>) => {
+  const runAuthAction = async (action: () => Promise<unknown>) => {
     setError(null);
     setLoading(true);
     try {

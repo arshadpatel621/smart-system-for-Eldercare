@@ -83,7 +83,7 @@ export function CaregiverReportCard({
           </span>
         </div>
         <div className="text-center py-10">
-          <p className="text-sm text-slate-400">Click "Analyze Health Data" to invoke this agent.</p>
+          <p className="text-sm text-slate-400">Click &quot;Analyze Health Data&quot; to invoke this agent.</p>
         </div>
       </div>
     );
@@ -132,7 +132,7 @@ export function CaregiverReportCard({
 
           <div className="rounded-2xl bg-slate-50/50 p-5 border border-slate-100">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-              Today's Observations & Logs
+              Today&apos;s Observations &amp; Logs
             </span>
             <p className="text-xs text-slate-600 leading-relaxed italic">
               {observationNotes}

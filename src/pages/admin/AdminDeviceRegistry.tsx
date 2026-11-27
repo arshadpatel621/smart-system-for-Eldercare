@@ -51,7 +51,7 @@ export default function AdminDeviceRegistry() {
               <div key={dev.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 capitalize text-sm">
-                    {(dev.source || (dev as any).category || 'device').toString().replace('_', ' ')}
+                    {(dev.source || (dev as unknown as Record<string, unknown>).category || 'device').toString().replace('_', ' ')}
                   </span>
                   <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase">
                     {dev.status || 'optimal'}
