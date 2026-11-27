@@ -73,10 +73,26 @@ const ALLOWED_AI_EVENT_TYPES: AIEventType[] = [
   'inactivity_detected',
   'person_detected',
   'person_detection_update',
+  'activity_classified',
+  'v2_agent_status',
   'face_recognized',
   'smoke_detected',
   'intrusion_detected',
 ];
+
+const V2_ACTIVITY_CLASSES = [
+  'FALL',
+  'FALLEN',
+  'LIE_DOWN',
+  'LYING',
+  'OTHER',
+  'SIT_DOWN',
+  'SITTING',
+  'STAND_UP',
+  'STANDING',
+  'WALKING',
+] as const;
+const V2_ACTIVITY_SET = new Set<string>(V2_ACTIVITY_CLASSES);
 
 const sanitizePersonDetectionDetails = (
   details: Record<string, unknown>,
@@ -96,7 +112,7 @@ const sanitizePersonDetectionDetails = (
   for (const rawPerson of rawPersons) {
     if (!rawPerson || typeof rawPerson !== 'object' || Array.isArray(rawPerson)) return null;
     const person = rawPerson as Record<string, unknown>;
-    const { trackId, confidence, state, reason, box, torsoAngle } = person;
+    const { trackId, confidence, state, reason, box, torsoAngle, keypoints, activity, activityConfidence } = person;
     if (
       !(trackId === null || (Number.isInteger(trackId) && Number(trackId) >= 0)) ||
       typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 ||
@@ -112,12 +128,49 @@ const sanitizePersonDetectionDetails = (
     if (x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 || x2 > Number(frameWidth) || y2 > Number(frameHeight)) {
       return null;
     }
-    if (torsoAngle !== null && (
+    if (torsoAngle !== null && torsoAngle !== undefined && (
       typeof torsoAngle !== 'number' || !Number.isFinite(torsoAngle) || torsoAngle < 0 || torsoAngle > 90
     )) {
       return null;
     }
-    persons.push({ trackId, confidence, state, reason, box, torsoAngle });
+
+    const sanitized: Record<string, unknown> = {
+      trackId,
+      confidence,
+      state,
+      reason,
+      box,
+      torsoAngle: torsoAngle === undefined ? null : torsoAngle,
+    };
+
+    if (keypoints !== undefined) {
+      if (!Array.isArray(keypoints) || keypoints.length !== 17) return null;
+      const safeKeypoints: Array<[number, number, number]> = [];
+      for (const point of keypoints) {
+        if (!Array.isArray(point) || point.length !== 3) return null;
+        const [x, y, c] = point as unknown[];
+        if (
+          typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > Number(frameWidth) ||
+          typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > Number(frameHeight) ||
+          typeof c !== 'number' || !Number.isFinite(c) || c < 0 || c > 1
+        ) {
+          return null;
+        }
+        safeKeypoints.push([x, y, c]);
+      }
+      sanitized.keypoints = safeKeypoints;
+    }
+
+    if (activity !== undefined) {
+      if (typeof activity !== 'string' || !V2_ACTIVITY_SET.has(activity as typeof V2_ACTIVITY_CLASSES[number])) return null;
+      sanitized.activity = activity;
+    }
+    if (activityConfidence !== undefined) {
+      if (typeof activityConfidence !== 'number' || !Number.isFinite(activityConfidence) || activityConfidence < 0 || activityConfidence > 1) return null;
+      sanitized.activityConfidence = activityConfidence;
+    }
+
+    persons.push(sanitized);
   }
 
   return {
@@ -127,6 +180,90 @@ const sanitizePersonDetectionDetails = (
     personCount: persons.length,
     cameraName: typeof details.cameraName === 'string' ? details.cameraName.slice(0, 100) : 'Camera',
   };
+};
+
+const sanitizeActivityDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  const { trackId, activity, classProbabilities, frameWidth, frameHeight, box } = details;
+  if (
+    !Number.isInteger(trackId) || Number(trackId) < 0 ||
+    typeof activity !== 'string' || !V2_ACTIVITY_CLASSES.includes(activity as typeof V2_ACTIVITY_CLASSES[number]) ||
+    !classProbabilities || typeof classProbabilities !== 'object' || Array.isArray(classProbabilities) ||
+    !Number.isInteger(frameWidth) || Number(frameWidth) < 1 || Number(frameWidth) > 16384 ||
+    !Number.isInteger(frameHeight) || Number(frameHeight) < 1 || Number(frameHeight) > 16384
+  ) {
+    return null;
+  }
+
+  const scores = classProbabilities as Record<string, unknown>;
+  if (
+    Object.keys(scores).length !== V2_ACTIVITY_CLASSES.length ||
+    !V2_ACTIVITY_CLASSES.every((name) =>
+      typeof scores[name] === 'number' &&
+      Number.isFinite(scores[name]) &&
+      Number(scores[name]) >= 0 &&
+      Number(scores[name]) <= 1
+    )
+  ) {
+    return null;
+  }
+  const scoreTotal = V2_ACTIVITY_CLASSES.reduce((total, name) => total + Number(scores[name]), 0);
+  if (Math.abs(scoreTotal - 1) > 0.02) return null;
+
+  let safeBox: number[] | undefined;
+  if (box !== undefined) {
+    if (
+      !Array.isArray(box) || box.length !== 4 ||
+      !box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+    ) {
+      return null;
+    }
+    const [x1, y1, x2, y2] = box as number[];
+    if (
+      x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 ||
+      x2 > Number(frameWidth) || y2 > Number(frameHeight)
+    ) {
+      return null;
+    }
+    safeBox = box as number[];
+  }
+
+  return {
+    trackId,
+    activity,
+    classProbabilities: Object.fromEntries(
+      V2_ACTIVITY_CLASSES.map((name) => [name, Number(scores[name])]),
+    ),
+    frameWidth,
+    frameHeight,
+    ...(safeBox ? { box: safeBox } : {}),
+    model: 'VitalCare V2 TCN-Transformer',
+    poseModel: 'YOLO11n-Pose',
+  };
+};
+
+const sanitizeV2AgentStatusDetails = (
+  details: Record<string, unknown>,
+): Record<string, unknown> | null => {
+  if (details.status !== 'online' && details.status !== 'offline') return null;
+  const sanitized: Record<string, unknown> = {
+    status: details.status,
+    cameraName: typeof details.cameraName === 'string' ? details.cameraName.slice(0, 100) : 'Camera',
+    model: 'VitalCare V2 TCN-Transformer',
+    poseModel: 'YOLO11n-Pose',
+  };
+  if (details.metrics && typeof details.metrics === 'object' && !Array.isArray(details.metrics)) {
+    const metrics: Record<string, number> = {};
+    for (const [key, value] of Object.entries(details.metrics as Record<string, unknown>)) {
+      if (typeof value === 'number' && Number.isFinite(value)) metrics[key] = value;
+    }
+    if (Object.keys(metrics).length > 0) sanitized.metrics = metrics;
+  }
+  if (typeof details.annotatedStreamUrl === 'string' && details.annotatedStreamUrl.startsWith('http')) {
+    sanitized.annotatedStreamUrl = details.annotatedStreamUrl.slice(0, 300);
+  }
+  return sanitized;
 };
 
 // ── AI Event Receiver ──────────────────────────────────────────────────────
@@ -175,9 +312,18 @@ app.post('/api/events', (req: Request, res: Response) => {
       : {};
   const eventDetails = type === 'person_detection_update'
     ? sanitizePersonDetectionDetails(safeDetails)
+    : type === 'activity_classified'
+      ? sanitizeActivityDetails(safeDetails)
+      : type === 'v2_agent_status'
+        ? sanitizeV2AgentStatusDetails(safeDetails)
     : safeDetails;
   if (!eventDetails) {
-    res.status(400).json({ error: 'Invalid person detection update payload' });
+    const error = type === 'person_detection_update'
+      ? 'Invalid person detection update payload'
+      : type === 'activity_classified'
+        ? 'Invalid activity classification payload'
+        : 'Invalid V2 agent status payload';
+    res.status(400).json({ error });
     return;
   }
 
@@ -218,6 +364,29 @@ app.get('/health', async (_req: Request, res: Response) => {
 // ── HTTP + WebSocket Server ────────────────────────────────────────────────
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+
+// Surface duplicate-server startup failures as an actionable diagnostic instead
+// of an unhandled WebSocketServer error (the common EADDRINUSE case on port 5000).
+wss.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[SERVER] Port ${PORT} is already in use. Stop the other VitalCare server process or set PORT to a free port.`);
+  } else {
+    console.error('[SERVER] HTTP/WebSocket listener error:', err.message);
+  }
+  // A duplicate server instance would spawn a second set of FFmpeg processes
+  // against the same cameras; exit instead of running half-initialized.
+  killAllStreamsSafe();
+  process.exit(1);
+});
+
+// HTTP listen errors are re-emitted on wss, but attach directly too for safety.
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[SERVER] Port ${PORT} is already in use. Stop the other VitalCare server process or set PORT to a free port.`);
+    killAllStreamsSafe();
+    process.exit(1);
+  }
+});
 
 wss.on('connection', async (ws: WebSocket) => {
   console.log('[WS] Dashboard client connected');
@@ -267,25 +436,43 @@ server.listen(PORT, async () => {
 });
 
 let isShuttingDown = false;
+
+/** Best-effort synchronous kill of all FFmpeg children; safe to call on exit. */
+function killAllStreamsSafe(): void {
+  try { cameraService.killAllStreams(); } catch { /* noop */ }
+}
+
 const shutdown = async (signal: string) => {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n[SERVER] Received ${signal}, shutting down gracefully...`);
-  
+
   await cameraService.shutdown();
-  
+
   server.close(() => {
     console.log('[SERVER] HTTP server closed.');
+    killAllStreamsSafe();
     process.exit(0);
   });
-  
+
   // Force exit if taking too long
   setTimeout(() => {
     console.error('[SERVER] Could not close connections in time, forcefully shutting down');
+    killAllStreamsSafe();
     process.exit(1);
   }, 3000);
 };
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGUSR2', () => shutdown('SIGUSR2')); // ts-node-dev / nodemon
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGHUP', () => void shutdown('SIGHUP'));
+process.on('SIGUSR2', () => void shutdown('SIGUSR2')); // ts-node-dev / nodemon
+
+// Never leave orphaned FFmpeg processes holding camera RTSP sessions.
+process.on('exit', () => killAllStreamsSafe());
+process.on('uncaughtException', (err) => {
+  console.error('[SERVER] Uncaught exception:', err);
+  killAllStreamsSafe();
+  process.exit(1);
+});
+// Do not swallow unhandled rejections; let them surface. 'exit' kills children.

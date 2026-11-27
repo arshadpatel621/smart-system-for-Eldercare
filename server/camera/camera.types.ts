@@ -124,6 +124,8 @@ export interface CameraStatus {
   fps: number;
   connectionTime: string | null;  // ISO timestamp
   reconnectAttempts: number;
+  /** ISO timestamp of the last complete JPEG frame received from FFmpeg (null when no frame yet). */
+  lastFrameAt: string | null;
   error?: string;
 }
 
@@ -245,6 +247,8 @@ export type AIEventType =
   | 'inactivity_detected'
   | 'person_detected'
   | 'person_detection_update'
+  | 'activity_classified'
+  | 'v2_agent_status'
   | 'face_recognized'
   | 'smoke_detected'
   | 'intrusion_detected';

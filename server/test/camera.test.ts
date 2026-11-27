@@ -15,6 +15,7 @@ import { test, describe, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'child_process';
 import express from 'express';
+import { PassThrough } from 'stream';
 import fs from 'node:fs';
 import path from 'node:path';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
@@ -25,7 +26,6 @@ import {
 } from '../camera/camera.crypto';
 import {
   normalizeRtspPath,
-  parseRtspTarget,
   buildRtspUrl,
   buildRedactedRtspUrl,
   BRAND_PROFILES,
@@ -33,6 +33,7 @@ import {
 import { JsonCameraRepository } from '../camera/camera.repository';
 import {
   createCameraStreamFfmpegConfig,
+  LatestFrameWriter,
   MjpegFrameParser,
   toPublic,
   CameraService,
@@ -64,6 +65,29 @@ describe('VitalCare Camera Integration Tests', () => {
 
   // ─── 1. Validation & Input Sanitization ──────────────────────────────────────
   describe('1. Input Validation & Path Normalization', () => {
+    test('slow MJPEG consumers retain only the newest pending frame', async () => {
+      const response = new PassThrough({ highWaterMark: 1 });
+      const writer = new LatestFrameWriter(response, (error) => {
+        throw error;
+      });
+      const chunks: Buffer[] = [];
+
+      writer.write(Buffer.from('frame-one'));
+      writer.write(Buffer.from('stale-frame'));
+      writer.write(Buffer.from('latest-frame'));
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.resume();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const output = Buffer.concat(chunks).toString('utf8');
+      assert.match(output, /frame-one/);
+      assert.match(output, /latest-frame/);
+      assert.doesNotMatch(output, /stale-frame/);
+
+      writer.dispose();
+      response.destroy();
+    });
+
     test('normalizeRtspPath ensures leading slash and preserves queries', () => {
       assert.equal(normalizeRtspPath('live/ch0'), '/live/ch0');
       assert.equal(normalizeRtspPath('/live/ch0'), '/live/ch0');
@@ -142,6 +166,7 @@ describe('VitalCare Camera Integration Tests', () => {
       const outputCodecIndex = config.args.indexOf('-c:v');
 
       assert.equal(config.args[config.args.indexOf('-rtsp_transport') + 1], 'tcp');
+      assert.equal(config.args[config.args.indexOf('-q:v') + 1], '5');
       assert.equal(
         inputUrl,
         'rtsp://admin:test-camera-password@192.168.1.184:5543/09009cbd9dc76737d7e64380b5612bd8/live/channel0'
@@ -390,14 +415,86 @@ describe('VitalCare Camera Integration Tests', () => {
   describe('3b. Shared-stream lifecycle', () => {
     test('MJPEG parser only emits complete JPEG frames', () => {
       const parser = new MjpegFrameParser();
-      const frameStart = Buffer.from([0xff, 0xd8, 0x01, 0x02]);
+      const validJpeg = Buffer.from([
+        0xff, 0xd8,
+        0xff, 0xe0, 0x00, 0x04, 0x11, 0x22,
+        0xff, 0xda, 0x00, 0x02,
+        0x01, 0xff, 0xd9,
+      ]);
+      const truncatedFrame = Buffer.from([0xff, 0xd8, 0xff, 0xda, 0x00, 0x02, 0x01, 0x02]);
 
-      assert.deepEqual(parser.push(frameStart), []);
-      assert.deepEqual(parser.push(Buffer.from([0x03, 0xff])), []);
-      const complete = parser.push(Buffer.from([0xd9]));
+      assert.deepEqual(parser.push(truncatedFrame.subarray(0, 6)), []);
+      assert.deepEqual(parser.push(truncatedFrame.subarray(6)), []);
+      const complete = parser.push(validJpeg);
 
       assert.equal(complete.length, 1);
-      assert.deepEqual(complete[0], Buffer.from([0xff, 0xd8, 0x01, 0x02, 0x03, 0xff, 0xd9]));
+      assert.deepEqual(complete[0], validJpeg);
+      assert.equal(parser.invalidFrames, 1);
+    });
+
+    test('MJPEG parser separates adjacent frames across arbitrary FFmpeg chunks', () => {
+      const parser = new MjpegFrameParser();
+      const firstJpeg = Buffer.from([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x11, 0x22,
+        0xff, 0xda, 0x00, 0x02, 0x31, 0xff, 0xd9,
+      ]);
+      const secondJpeg = Buffer.from([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x11, 0x22,
+        0xff, 0xda, 0x00, 0x02, 0x72, 0xff, 0xd9,
+      ]);
+      const combined = Buffer.concat([firstJpeg, secondJpeg]);
+      const frames: Buffer[] = [];
+
+      for (let offset = 0; offset < combined.length; offset += 3) {
+        frames.push(...parser.push(combined.subarray(offset, offset + 3)));
+      }
+
+      assert.deepEqual(frames, [firstJpeg, secondJpeg]);
+      frames[0][12] = 0;
+      assert.equal(frames[1][12], 0x72, 'each emitted JPEG owns independent frame bytes');
+    });
+
+    test('flushes MJPEG response headers before the first frame', async () => {
+      const repo = new JsonCameraRepository(TEST_CAMERAS_FILE);
+      const camera = await repo.create({
+        name: 'Stream Header Flush Test Camera',
+        brand: 'cpplus',
+        location: 'living_room',
+        ipAddress: 'mock',
+        username: 'operator',
+        password: 'stream-secret',
+      });
+      await repo.setEnabled(camera.id, false);
+      const service = new CameraService(repo);
+      await service.initialize();
+      await repo.setEnabled(camera.id, true);
+
+      const calls: string[] = [];
+      let onClose: (() => void) | undefined;
+      const fakeResponse = {
+        writeHead: () => calls.push('writeHead'),
+        flushHeaders: () => calls.push('flushHeaders'),
+        socket: { setNoDelay: () => undefined },
+        on: (event: string, listener: () => void) => {
+          if (event === 'close') onClose = listener;
+          return fakeResponse;
+        },
+        writableEnded: false,
+      };
+      const response = fakeResponse as unknown as Parameters<CameraService['addStreamListener']>[1];
+      const startStream = service['startStream'];
+      service['startStream'] = async () => {
+        calls.push('startStream');
+      };
+
+      try {
+        await service.addStreamListener(camera.id, response);
+        assert.deepEqual(calls, ['writeHead', 'flushHeaders', 'startStream']);
+      } finally {
+        onClose?.();
+        service['startStream'] = startStream;
+        await service.shutdown();
+      }
     });
 
     test('MJPEG endpoint returns a decodable JPEG and marks ONLINE only after a frame', async () => {
@@ -455,6 +552,14 @@ describe('VitalCare Camera Integration Tests', () => {
         assert.equal(decoded.status, 0, decoded.stderr.toString());
         assert.equal((await service.getCameraStatus(camera.id)).status, 'ONLINE');
         assert.ok((service['streamDiagnostics'].get(camera.id)?.framesReceived ?? 0) > 0);
+
+        const fpsDeadline = Date.now() + 3000;
+        let cameraStatus = await service.getCameraStatus(camera.id);
+        while (cameraStatus.fps === 0 && Date.now() < fpsDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          cameraStatus = await service.getCameraStatus(camera.id);
+        }
+        assert.ok(cameraStatus.fps > 0, 'FPS should be measured from received JPEG frames');
       } finally {
         clearTimeout(timeout);
         await reader?.cancel().catch(() => undefined);

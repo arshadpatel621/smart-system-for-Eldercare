@@ -369,12 +369,32 @@ export function parseFfmpegStderr(
  * Attempts to connect to an RTSP stream using FFmpeg.
  * Tests a single RTSP path/URI and returns detailed diagnostics.
  */
+/**
+ * Try RTSP-TCP first (no corruption), then RTSP-UDP. Many CP PLUS WiFi cameras
+ * accept TCP + SDP but never send RTP-over-TCP; UDP is required for video.
+ */
+async function probeRtspBothTransports(
+  ipAddress: string,
+  port: number,
+  username: string,
+  password: string,
+  rtspPathOrUri: string,
+): Promise<RtspProbeResult> {
+  const tcp = await probeRtspPath(ipAddress, port, username, password, rtspPathOrUri, 'tcp');
+  if (tcp.success || tcp.authError || tcp.networkUnreachable) return tcp;
+  const udp = await probeRtspPath(ipAddress, port, username, password, rtspPathOrUri, 'udp');
+  if (udp.success) return udp;
+  // Prefer a concrete UDP error if it got further, else keep TCP result.
+  return udp.failureReason === 'timeout' ? tcp : udp;
+}
+
 function probeRtspPath(
   ipAddress: string,
   port: number,
   username: string,
   password: string,
-  rtspPathOrUri: string
+  rtspPathOrUri: string,
+  transport: 'tcp' | 'udp' = 'tcp',
 ): Promise<RtspProbeResult> {
   return new Promise((resolve) => {
     const rtspUrl = buildRtspUrl(ipAddress, port, username, password, rtspPathOrUri);
@@ -386,7 +406,7 @@ function probeRtspPath(
     const proc = spawn(
       ffmpegPath,
       [
-        '-rtsp_transport', 'tcp',
+        '-rtsp_transport', transport,
         '-stimeout', '5000000', // 5-second socket timeout in microseconds
         '-analyzeduration', '2000000', // 2-second analyze duration
         '-probesize', '1048576', // 1MB probe size
@@ -533,7 +553,7 @@ async function probeRtsp(
     if (testedTargets.has(target)) continue;
     testedTargets.add(target);
 
-    const result = await probeRtspPath(ipAddress, port, username, password, target);
+    const result = await probeRtspBothTransports(ipAddress, port, username, password, target);
 
     if (result.success) {
       return result;
@@ -557,7 +577,7 @@ async function probeRtsp(
     if (testedTargets.has(resolvedPath)) continue;
     testedTargets.add(resolvedPath);
 
-    const result = await probeRtspPath(ipAddress, port, username, password, resolvedPath);
+    const result = await probeRtspBothTransports(ipAddress, port, username, password, resolvedPath);
 
     if (result.success) return result;
     if (result.authError) return result;

@@ -35,7 +35,29 @@ function now(): string {
 
 // ─── JSON File Repository ─────────────────────────────────────────────────────
 
-const DB_PATH = path.resolve(__dirname, '../data/cameras.json');
+/**
+ * Resolve the persistent camera database location robustly for BOTH dev and prod.
+ *
+ * `__dirname` differs:
+ *   - source/dev (ts-node-dev): <repo>/server/camera
+ *   - compiled prod (node dist): <repo>/server/dist/camera
+ * The previous `path.resolve(__dirname,'../data/cameras.json')` read
+ * `<repo>/server/data/cameras.json` in dev but `<repo>/server/dist/data/cameras.json`
+ * in production, silently ignoring `server/data`. Resolve `<repo>/server/data`.
+ *
+ * Override with CAMERAS_DB_PATH (and/or VITALCARE_DATA_DIR) if needed.
+ */
+function resolveDbPath(): string {
+  if (process.env.CAMERAS_DB_PATH) return path.resolve(process.env.CAMERAS_DB_PATH);
+  const dataDir = process.env.VITALCARE_DATA_DIR;
+  if (dataDir) return path.resolve(dataDir, 'cameras.json');
+  // <repo>/server/camera -> server ; <repo>/server/dist/camera -> server
+  const inDist = path.basename(path.dirname(__dirname)) === 'dist';
+  const serverRoot = inDist ? path.resolve(__dirname, '..', '..') : path.resolve(__dirname, '..');
+  return path.join(serverRoot, 'data', 'cameras.json');
+}
+
+const DB_PATH = resolveDbPath();
 
 /**
  * JsonCameraRepository — stores camera records in a local JSON file.

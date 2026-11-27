@@ -15,10 +15,10 @@
  * but never interacts with this service directly.
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, spawnSync, ChildProcess, ChildProcessByStdio } from 'child_process';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { Response } from 'express';
-import { Writable } from 'stream';
+import { Writable, Readable } from 'stream';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -59,15 +59,131 @@ function log(level: 'info' | 'warn' | 'error', camId: string, msg: string, detai
   else console.log(prefix, msg, detail ?? '');
 }
 
-const MAX_STREAM_BUFFER_BYTES = 1_000_000;
 const MAX_RECORDING_BUFFER_BYTES = 12_000_000;
 const MAX_JPEG_FRAME_BYTES = 5_000_000;
 const STREAM_DIAGNOSTIC_INTERVAL_MS = 15_000;
-const STREAM_HEALTH_CHECK_INTERVAL_MS = 5_000;
-const STREAM_STALL_TIMEOUT_MS = 20_000;
+const STREAM_HEALTH_CHECK_INTERVAL_MS = envInt('STREAM_HEALTH_CHECK_INTERVAL_MS', 5_000);
+/**
+ * Separate startup grace period (no first frame yet) from the post-first-frame
+ * stall timeout. A cold RTSP start needs time for TCP connect + DESCRIBE +
+ * probe + first keyframe, especially on weak WiFi; killing too early causes a
+ * zero-frame reconnect loop. (STREAM_STALL_TIMEOUT_MS previously conflated both.)
+ */
+const STREAM_STARTUP_TIMEOUT_MS = envInt('STREAM_STARTUP_TIMEOUT_MS', 30_000);
+/** If no first frame over RTSP-TCP within this window, fall back to UDP faster. */
+const RTSP_TCP_FALLBACK_MS = envInt('RTSP_TCP_FALLBACK_MS', 12_000);
+const STREAM_STALL_TIMEOUT_MS = envInt('STREAM_STALL_TIMEOUT_MS', 12_000);
+/** Frames older than this are considered stale; FPS is reported as 0. */
+const STREAM_FPS_IDLE_MS = envInt('STREAM_FPS_IDLE_MS', 2_000);
+/** Grace period after SIGTERM before escalating to SIGKILL when killing FFmpeg. */
+const FFMPEG_KILL_GRACE_MS = envInt('FFMPEG_KILL_GRACE_MS', 1_500);
+/** RTSP socket I/O timeout passed to FFmpeg `-stimeout`, in microseconds. */
+const RTSP_SOCKET_TIMEOUT_US = envInt('RTSP_SOCKET_TIMEOUT_US', 15_000_000);
+/** Reconnect backoff: bounded exponential with cap. */
+const RECONNECT_INITIAL_DELAY_MS = envInt('RECONNECT_INITIAL_DELAY_MS', 2_000);
+const RECONNECT_MAX_DELAY_MS = envInt('RECONNECT_MAX_DELAY_MS', 30_000);
+const MAX_RECONNECT_ATTEMPTS = envInt('MAX_RECONNECT_ATTEMPTS', 5);
+/** Reset reconnect streak after a stream is stable for this long. */
+const RECONNECT_STABLE_RESET_MS = envInt('RECONNECT_STABLE_RESET_MS', 60_000);
+/** Output transcoding targets (reliability-first defaults for 2560x1440@20 input). */
+const STREAM_OUTPUT_FPS = envInt('STREAM_OUTPUT_FPS', 15);
+const STREAM_MAX_WIDTH = envInt('STREAM_MAX_WIDTH', 1280);
+const STREAM_JPEG_QUALITY = envInt('STREAM_JPEG_QUALITY', 5);
+/** Small input buffer to smooth packet loss; NOT a large latency queue. */
+const STREAM_MAX_DELAY_US = envInt('STREAM_MAX_DELAY_US', 500_000);
+const STREAM_ANALYZE_DURATION_US = envInt('STREAM_ANALYZE_DURATION_US', 4_000_000);
+const STREAM_PROBE_SIZE = envInt('STREAM_PROBE_SIZE', 2_000_000);
+const STREAM_THREADS = envInt('STREAM_THREADS', 2);
 const MJPEG_BOUNDARY = 'myboundary';
 const JPEG_START_MARKER = Buffer.from([0xff, 0xd8]);
-const JPEG_END_MARKER = Buffer.from([0xff, 0xd9]);
+
+function defaultRtspTransport(): RtspTransport {
+  const raw = (process.env.RTSP_TRANSPORT ?? 'tcp').toLowerCase();
+  if (raw === 'udp' || raw === 'udp_multicast' || raw === 'http' || raw === 'tcp') return raw;
+  return 'tcp';
+}
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+/**
+ * Bounded exponential backoff for reconnects.
+ * attempt is 1-based. delay = min(initial * 2^(attempt-1), max). Pure + testable.
+ */
+export function computeReconnectDelayMs(
+  attempt: number,
+  initialMs: number = RECONNECT_INITIAL_DELAY_MS,
+  maxMs: number = RECONNECT_MAX_DELAY_MS,
+): number {
+  const safeAttempt = Math.max(1, Math.floor(attempt));
+  const exponential = initialMs * Math.pow(2, safeAttempt - 1);
+  return Math.min(exponential, maxMs);
+}
+
+/** Redact RTSP credentials and drop FFmpeg progress noise from any logged stderr. */
+export function redactStderr(text: string): string {
+  return text
+    .replace(/rtsp:\/\/[^\s/@]+:[^\s/@]+@/gi, 'rtsp://[redacted]@')
+    .replace(/(?<=rtsp:\/\/)[^\s/@]+@/gi, '[redacted]@');
+}
+
+/** Strip FFmpeg `frame=...` progress lines so real errors remain visible. */
+function stripProgressNoise(text: string): string {
+  return text
+    .split(/\r\n|\r|\n/)
+    .filter((line) => !/^\s*(frame=|\[(dup|drop)\s)/.test(line))
+    .join('\n')
+    .replace(/(^|\n)\s*frame=.*$/gm, '$1')
+    .trim();
+}
+
+/**
+ * Kill an FFmpeg child safely. `immediate=true` sends SIGKILL now; otherwise
+ * SIGTERM then escalate to SIGKILL after a grace period. Never throws.
+ */
+function killProcessGracefully(proc: ChildProcess, immediate = false): void {
+  if (!proc) return;
+  // Already gone?
+  if (proc.exitCode !== null || proc.signalCode !== null || proc.killed) {
+    try { proc.kill('SIGKILL'); } catch { /* noop */ }
+    return;
+  }
+  try {
+    if (immediate) {
+      proc.kill('SIGKILL');
+    } else {
+      proc.kill('SIGTERM');
+    }
+  } catch { /* noop */ }
+
+  if (immediate) return;
+  const escalate = setTimeout(() => {
+    try {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+    } catch { /* noop */ }
+  }, FFMPEG_KILL_GRACE_MS);
+  escalate.unref?.();
+  proc.once('close', () => clearTimeout(escalate));
+  proc.once('error', () => clearTimeout(escalate));
+}
+
+/** Best-effort kill of an FFmpeg process tree (Windows especially). Never throws. */
+function killProcessTreeSync(proc: ChildProcess): void {
+  const pid = proc.pid;
+  if (!pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      // POSIX: kill the process group if we created one; otherwise just the pid.
+      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* noop */ } }
+    }
+  } catch { /* noop */ }
+}
 
 function formatMjpegPart(frame: Buffer): Buffer {
   return Buffer.concat([
@@ -83,15 +199,19 @@ interface StreamDiagnostics {
   startedAt: number;
   bytesReceived: number;
   framesReceived: number;
+  framesAtLastFpsSample: number;
+  lastFpsSampleAt: number;
   frameParser: MjpegFrameParser;
   rtspStatus: 'connecting' | 'connected' | 'disconnected';
   lastFrameAt: number | null;
+  lastFrame: Buffer | null;
   lastDiagnosticAt: number;
   stalled: boolean;
 }
 
 export class MjpegFrameParser {
   private buffer = Buffer.alloc(0);
+  invalidFrames = 0;
 
   push(chunk: Buffer): Buffer[] {
     this.buffer = Buffer.concat([this.buffer, chunk]);
@@ -106,8 +226,8 @@ export class MjpegFrameParser {
         return frames;
       }
 
-      const end = this.buffer.indexOf(JPEG_END_MARKER, start + 2);
-      if (end < 0) {
+      const parsed = this.findJpegEnd(start);
+      if (parsed === null) {
         this.buffer = this.buffer.subarray(start);
         if (this.buffer.length > MAX_JPEG_FRAME_BYTES) {
           throw new Error('Camera MJPEG frame exceeded the configured size limit.');
@@ -115,14 +235,119 @@ export class MjpegFrameParser {
         return frames;
       }
 
-      if (end + JPEG_END_MARKER.length - start > MAX_JPEG_FRAME_BYTES) {
+      if (typeof parsed !== 'number') {
+        this.invalidFrames += 1;
+        this.buffer = this.buffer.subarray(parsed.invalidAt);
+        continue;
+      }
+
+      const end = parsed;
+      if (end - start > MAX_JPEG_FRAME_BYTES) {
         throw new Error('Camera MJPEG frame exceeded the configured size limit.');
       }
-      frames.push(this.buffer.subarray(start, end + 2));
-      this.buffer = this.buffer.subarray(end + 2);
+      frames.push(Buffer.from(this.buffer.subarray(start, end)));
+      this.buffer = this.buffer.subarray(end);
     }
 
     return frames;
+  }
+
+  private findJpegEnd(start: number): number | { invalidAt: number } | null {
+    let position = start + JPEG_START_MARKER.length;
+    let inScan = false;
+
+    while (position < this.buffer.length) {
+      if (inScan) {
+        const markerStart = this.buffer.indexOf(0xff, position);
+        if (markerStart < 0 || markerStart + 1 >= this.buffer.length) return null;
+
+        let markerCodeAt = markerStart + 1;
+        while (markerCodeAt < this.buffer.length && this.buffer[markerCodeAt] === 0xff) {
+          markerCodeAt += 1;
+        }
+        if (markerCodeAt >= this.buffer.length) return null;
+
+        const marker = this.buffer[markerCodeAt];
+        if (marker === 0x00 || (marker >= 0xd0 && marker <= 0xd7)) {
+          position = markerCodeAt + 1;
+          continue;
+        }
+        if (marker === 0xd9) return markerCodeAt + 1;
+        if (marker === 0xd8) return { invalidAt: markerStart };
+        position = markerStart;
+        inScan = false;
+        continue;
+      }
+
+      if (this.buffer[position] !== 0xff) {
+        const nextStart = this.buffer.indexOf(JPEG_START_MARKER, position);
+        return nextStart >= 0 ? { invalidAt: nextStart } : null;
+      }
+      while (position < this.buffer.length && this.buffer[position] === 0xff) position += 1;
+      if (position >= this.buffer.length) return null;
+
+      const marker = this.buffer[position];
+      position += 1;
+      if (marker === 0xd9) return position;
+      if (marker === 0xd8) return { invalidAt: position - 2 };
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (marker === 0x00 || position + 2 > this.buffer.length) return null;
+
+      const segmentLength = this.buffer.readUInt16BE(position);
+      if (segmentLength < 2) return null;
+      const segmentEnd = position + segmentLength;
+      if (segmentEnd > this.buffer.length) return null;
+      position = segmentEnd;
+      inScan = marker === 0xda;
+    }
+
+    return null;
+  }
+}
+
+export class LatestFrameWriter {
+  private waitingForDrain = false;
+  private latestFrame?: Buffer;
+  private drainHandler?: () => void;
+
+  constructor(
+    private readonly response: Pick<Response, 'destroyed' | 'writableEnded'> & {
+      write(chunk: Buffer): boolean;
+      once(event: 'drain', listener: () => void): unknown;
+      off(event: 'drain', listener: () => void): unknown;
+    },
+    private readonly onError: (error: unknown) => void,
+  ) {}
+
+  write(frame: Buffer): void {
+    if (this.response.destroyed || this.response.writableEnded) return;
+    if (this.waitingForDrain) {
+      this.latestFrame = frame;
+      return;
+    }
+
+    try {
+      if (this.response.write(formatMjpegPart(frame))) return;
+      this.waitingForDrain = true;
+      this.drainHandler = () => {
+        this.waitingForDrain = false;
+        this.drainHandler = undefined;
+        const latestFrame = this.latestFrame;
+        this.latestFrame = undefined;
+        if (latestFrame) this.write(latestFrame);
+      };
+      this.response.once('drain', this.drainHandler);
+    } catch (error: unknown) {
+      this.dispose();
+      this.onError(error);
+    }
+  }
+
+  dispose(): void {
+    if (this.drainHandler) this.response.off('drain', this.drainHandler);
+    this.drainHandler = undefined;
+    this.latestFrame = undefined;
+    this.waitingForDrain = false;
   }
 }
 
@@ -180,10 +405,13 @@ export function toPublic(record: CameraRecord): CameraPublicRecord {
   };
 }
 
+export type RtspTransport = 'tcp' | 'udp' | 'udp_multicast' | 'http';
+
 export function createCameraStreamFfmpegConfig(
   record: CameraRecord,
   password: string,
-  customRtspPath?: string
+  customRtspPath?: string,
+  transport?: RtspTransport
 ): { args: string[]; redactedRtspUrl?: string } {
   if (record.ipAddress === 'mock' || record.ipAddress === '0.0.0.0') {
     return {
@@ -224,21 +452,28 @@ export function createCameraStreamFfmpegConfig(
     args: [
       '-nostdin',
       '-hide_banner',
-      '-rtsp_transport', 'tcp',
-      '-stimeout', '15000000',
+      // RTSP transport: default TCP (no corruption), but some CP PLUS WiFi
+      // cameras only stream RTP over UDP; see UDP fallback in startStream.
+      '-rtsp_transport', transport ?? defaultRtspTransport(),
+      '-stimeout', String(RTSP_SOCKET_TIMEOUT_US),
       '-avoid_negative_ts', 'make_zero',
-      '-fflags', '+genpts+nobuffer+discardcorrupt',
-      '-flags', '+low_delay',
-      '-probesize', '500000',
-      '-analyzeduration', '1000000',
+      // Generate timestamps; keep a SMALL reorder buffer for smoothing packet
+      // loss instead of `+nobuffer+discardcorrupt+low_delay` (which drops frames).
+      '-fflags', '+genpts',
+      '-max_delay', String(STREAM_MAX_DELAY_US),
+      '-reorder_queue_size', '128',
+      // Bounded probing: don't stall startup ~10s waiting to analyze a stream.
+      '-probesize', String(STREAM_PROBE_SIZE),
+      '-analyzeduration', String(STREAM_ANALYZE_DURATION_US),
       '-i', rtspUrl,
       '-map', '0:v:0',
       '-c:v', 'mjpeg',
       '-an',
-      '-vf', "fps=15,scale=w='min(1280,iw)':h=-2",
-      '-threads:v', '2',
+      // Cap output fps + downscale wide streams; preserve aspect; even height.
+      '-vf', `fps=${STREAM_OUTPUT_FPS},scale=w='min(${STREAM_MAX_WIDTH},iw)':h=-2`,
+      '-threads:v', String(STREAM_THREADS),
       '-f', 'image2pipe',
-      '-q:v', '7',
+      '-q:v', String(STREAM_JPEG_QUALITY),
       'pipe:1',
     ],
   };
@@ -249,8 +484,14 @@ export function createCameraStreamFfmpegConfig(
 export class CameraService {
   /** FFmpeg child processes keyed by camera ID */
   private processes = new Map<string, ChildProcess>();
+  /** Cameras whose FFmpeg spawn is in progress (guards against duplicate starts). */
+  private startingStreams = new Set<string>();
+  /** Per-camera RTSP transport override set after a no-frame startup (e.g. UDP fallback). */
+  private rtspTransportOverrides = new Map<string, RtspTransport>();
   /** Runtime stream listeners keyed by camera ID */
   private listeners = new Map<string, Set<Response>>();
+  /** One-frame, latest-only backpressure state per HTTP stream client */
+  private streamWriters = new Map<Response, LatestFrameWriter>();
   /** Runtime camera statuses */
   private statuses = new Map<string, CameraStatus>();
   /** Reconnect attempt counters */
@@ -259,6 +500,8 @@ export class CameraService {
   private timers = new Map<string, NodeJS.Timeout>();
   /** Active continuous PTZ command and failsafe stop timer by camera ID */
   private activePtzCommands = new Map<string, { timer: NodeJS.Timeout }>();
+  /** Per-camera serialization chain so concurrent PTZ calls can't interleave SOAP. */
+  private ptzQueues = new Map<string, Promise<unknown>>();
   /** ONVIF profile and service information discovered for each camera */
   private onvifPtzConfigurations = new Map<string, OnvifPtzConfiguration>();
   /** Active recording process keyed by camera ID */
@@ -350,15 +593,13 @@ export class CameraService {
       }),
     );
 
-    for (const [, proc] of this.processes.entries()) {
-      try {
-        proc.kill('SIGTERM');
-      } catch {
-        // Ignore shutdown errors.
-      }
-    }
+    // Clear reconnect timers first so nothing respawns during teardown.
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
 
+    this.killAllStreams();
     this.processes.clear();
+    this.startingStreams.clear();
     this.onvifPtzConfigurations.clear();
 
     for (const timer of this.streamHealthTimers.values()) {
@@ -373,6 +614,24 @@ export class CameraService {
     }
 
     this.timers.clear();
+  }
+
+  /** Synchronously kill every tracked FFmpeg child. Safe to call on process exit. */
+  killAllStreams(): void {
+    // Clear first so 'close' handlers see no current process and won't reconnect.
+    const procs = [...this.processes.values()];
+    this.processes.clear();
+    this.startingStreams.clear();
+    // Cancel pending reconnects before killing.
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    for (const proc of procs) {
+      try { killProcessGracefully(proc, true); } catch { /* noop */ }
+      killProcessTreeSync(proc);
+    }
+    // Also clear any in-flight stream-health timers.
+    for (const timer of this.streamHealthTimers.values()) clearInterval(timer);
+    this.streamHealthTimers.clear();
   }
 
   // ─── CRUD Operations ───────────────────────────────────────────────────────
@@ -445,6 +704,7 @@ export class CameraService {
       fps: 0,
       connectionTime: null,
       reconnectAttempts: 0,
+      lastFrameAt: null,
       error: 'Camera removed',
     });
   }
@@ -551,7 +811,6 @@ export class CameraService {
     }
 
     const listeners = this.listeners.get(id)!;
-
     res.writeHead(200, {
       'Content-Type': `multipart/x-mixed-replace; boundary=${MJPEG_BOUNDARY}`,
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -563,8 +822,41 @@ export class CameraService {
     res.socket?.setNoDelay(true);
 
     listeners.add(res);
+    this.streamWriters.set(res, new LatestFrameWriter(res, (err) => {
+      this.removeStreamWriter(res);
+      listeners.delete(res);
+      const message = err instanceof Error ? err.message : String(err);
+      log('warn', id, 'Could not write camera frame to a stream client', message);
+      if (!res.destroyed && !res.writableEnded) res.end();
+    }));
 
     log('info', id, `Stream client connected. Total: ${listeners.size}`);
+
+    const disconnectListener = () => {
+      const wasRegistered = listeners.delete(res);
+      this.removeStreamWriter(res);
+      if (!wasRegistered) return;
+
+      log(
+        'info',
+        id,
+        `Stream client disconnected. Remaining: ${listeners.size}`
+      );
+
+      if (listeners.size === 0 && !this.activeRecordings.has(id)) {
+        log('info', id, 'No stream clients remain — stopping FFmpeg');
+        this.stopStream(id);
+        this.updateStatus(id, 'OFFLINE');
+      }
+    };
+
+    res.on('close', disconnectListener);
+    res.on('error', (err: Error) => {
+      log('warn', id, 'Camera stream client emitted an error', err.message);
+      disconnectListener();
+    });
+
+    res.flushHeaders();
 
     if (!this.processes.has(id)) {
       void this.startStream(record).catch((err: unknown) => {
@@ -583,34 +875,25 @@ export class CameraService {
         listeners.clear();
       });
     }
-
-    res.on('close', () => {
-      listeners.delete(res);
-
-      log(
-        'info',
-        id,
-        `Stream client disconnected. Remaining: ${listeners.size}`
-      );
-
-      if (listeners.size === 0 && !this.activeRecordings.has(id)) {
-        log('info', id, 'No stream clients remain — stopping FFmpeg');
-        this.stopStream(id);
-        this.updateStatus(id, 'OFFLINE');
-      }
-    });
   }
 
   // ─── FFmpeg Process Management ─────────────────────────────────────────────
 
-  private async startStream(record: CameraRecord): Promise<void> {
+  private async startStream(record: CameraRecord, fromReconnect = false): Promise<void> {
     if (this.processes.has(record.id)) {
       log('info', record.id, 'Stream start skipped; FFmpeg is already running');
+      return;
+    }
+    if (this.startingStreams.has(record.id)) {
+      log('info', record.id, 'Stream start skipped; FFmpeg spawn already in progress');
       return;
     }
 
     this.clearTimer(record.id, 'idle');
     this.clearTimer(record.id, 'reconnect');
+    // A fresh external start resets the retry streak; reconnect-driven starts accumulate.
+    if (!fromReconnect) this.reconnectAttempts.set(record.id, 0);
+    this.startingStreams.add(record.id);
 
     let password = '';
     try {
@@ -618,27 +901,65 @@ export class CameraService {
     } catch {
       password = '';
     }
-    const customRtspPath = getDecryptedRtspPath(record);
-    const ffmpegConfig = createCameraStreamFfmpegConfig(record, password, customRtspPath);
+    let customRtspPath: string | undefined;
+    try {
+      customRtspPath = getDecryptedRtspPath(record);
+    } catch {
+      customRtspPath = undefined;
+    }
+    let ffmpegConfig: { args: string[]; redactedRtspUrl?: string };
+    const activeTransport: RtspTransport = this.rtspTransportOverrides.get(record.id) ?? defaultRtspTransport();
+    try {
+      ffmpegConfig = createCameraStreamFfmpegConfig(record, password, customRtspPath, activeTransport);
+    } catch (err: unknown) {
+      this.startingStreams.delete(record.id);
+      const message = err instanceof Error ? err.message : String(err);
+      log('error', record.id, 'Failed to build FFmpeg command', redactStderr(message));
+      this.updateStatus(record.id, 'ERROR', `Failed to build FFmpeg command: ${message}`);
+      if (this.hasStreamConsumers(record.id)) this.scheduleReconnect(record);
+      return;
+    }
     if (ffmpegConfig.redactedRtspUrl) {
       log('info', record.id, `Starting RTSP stream: ${ffmpegConfig.redactedRtspUrl}`);
     }
 
     this.updateStatus(record.id, 'CONNECTING');
 
-    const proc = spawn(ffmpegInstaller.path, ffmpegConfig.args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    let proc: ChildProcessByStdio<null, Readable, Readable>;
+    try {
+      proc = spawn(ffmpegInstaller.path, ffmpegConfig.args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err: unknown) {
+      this.startingStreams.delete(record.id);
+      const message = err instanceof Error ? err.message : String(err);
+      log('error', record.id, 'Failed to spawn FFmpeg', redactStderr(message));
+      this.updateStatus(record.id, 'ERROR', `Failed to start FFmpeg: ${message}`);
+      if (this.hasStreamConsumers(record.id)) this.scheduleReconnect(record);
+      return;
+    }
     const startedAt = Date.now();
 
+    // Guard against duplicate FFmpeg for the same camera: only keep one.
+    const existing = this.processes.get(record.id);
+    if (existing && existing !== proc) {
+      log('warn', record.id, 'Duplicate FFmpeg detected; killing newly spawned process');
+      killProcessGracefully(proc);
+      this.startingStreams.delete(record.id);
+      return;
+    }
     this.processes.set(record.id, proc);
+    this.startingStreams.delete(record.id);
     const diagnostics: StreamDiagnostics = {
       startedAt,
       bytesReceived: 0,
       framesReceived: 0,
+      framesAtLastFpsSample: 0,
+      lastFpsSampleAt: startedAt,
       frameParser: new MjpegFrameParser(),
       rtspStatus: 'connecting',
       lastFrameAt: null,
+      lastFrame: null,
       lastDiagnosticAt: startedAt,
       stalled: false,
     };
@@ -662,7 +983,7 @@ export class CameraService {
         const message = err instanceof Error ? err.message : String(err);
         log('warn', record.id, 'Rejecting invalid FFmpeg JPEG output', message);
         this.updateStatus(record.id, 'ERROR', message);
-        proc.kill('SIGKILL');
+        killProcessGracefully(proc, true);
         return;
       }
       const framesInChunk = jpegFrames.length;
@@ -670,6 +991,10 @@ export class CameraService {
       if (framesInChunk > 0) {
         diagnostics.rtspStatus = 'connected';
         diagnostics.lastFrameAt = now;
+        diagnostics.lastFrame = jpegFrames[jpegFrames.length - 1];
+        // Expose accurate last-frame timestamp on the public status object.
+        const liveStatus = this.statuses.get(record.id);
+        if (liveStatus) liveStatus.lastFrameAt = new Date(now).toISOString();
         if (diagnostics.stalled) {
           diagnostics.stalled = false;
           log('info', record.id, 'Stream frame production recovered', JSON.stringify({
@@ -691,6 +1016,20 @@ export class CameraService {
         }
       }
 
+      if (now - diagnostics.lastFpsSampleAt >= 1000) {
+        const elapsedMs = now - diagnostics.lastFpsSampleAt;
+        const framesSinceSample = diagnostics.framesReceived - diagnostics.framesAtLastFpsSample;
+        const measuredFps = Math.round((framesSinceSample * 1000 / elapsedMs) * 10) / 10;
+        diagnostics.framesAtLastFpsSample = diagnostics.framesReceived;
+        diagnostics.lastFpsSampleAt = now;
+
+        const status = this.statuses.get(record.id);
+        if (status && status.status === 'ONLINE' && status.fps !== measuredFps) {
+          status.fps = measuredFps;
+          this.onStatusChangeCb?.(status);
+        }
+      }
+
       if (now - diagnostics.lastDiagnosticAt >= STREAM_DIAGNOSTIC_INTERVAL_MS) {
         diagnostics.lastDiagnosticAt = now;
         log('info', record.id, 'Stream diagnostics', JSON.stringify({
@@ -703,6 +1042,8 @@ export class CameraService {
             : 'waiting_for_first_frame',
           framesReceived: diagnostics.framesReceived,
           bytesReceived: diagnostics.bytesReceived,
+          invalidJpegFrames: diagnostics.frameParser.invalidFrames,
+          outputFps: this.statuses.get(record.id)?.fps ?? 0,
           lastFrameAt: diagnostics.lastFrameAt
             ? new Date(diagnostics.lastFrameAt).toISOString()
             : null,
@@ -713,25 +1054,9 @@ export class CameraService {
       }
 
       const listeners = this.listeners.get(record.id) ?? new Set<Response>();
+      const latestFrame = jpegFrames[jpegFrames.length - 1];
       for (const res of listeners) {
-        for (const frame of jpegFrames) {
-          try {
-            if (res.writableLength > MAX_STREAM_BUFFER_BYTES) {
-              log('warn', record.id, 'Disconnecting a slow stream client', JSON.stringify({
-                event: 'slow_consumer_disconnected',
-                bufferedBytes: res.writableLength,
-                activeConsumers: this.getActiveStreamConsumerCount(record.id),
-              }));
-              listeners.delete(res);
-              res.end();
-              break;
-            }
-            res.write(formatMjpegPart(frame));
-          } catch {
-            listeners.delete(res);
-            break;
-          }
-        }
+        if (latestFrame) this.writeLatestStreamFrame(record.id, res, latestFrame);
       }
 
       const recording = this.activeRecordings.get(record.id);
@@ -759,6 +1084,14 @@ export class CameraService {
       this.checkStreamHealth(record.id, proc, diagnostics);
     }, STREAM_HEALTH_CHECK_INTERVAL_MS);
     this.streamHealthTimers.set(record.id, healthTimer);
+
+    proc.stdout.on('error', (err: Error) => {
+      log('warn', record.id, 'FFmpeg stdout stream error', redactStderr(err.message));
+    });
+
+    proc.stderr.on('error', (err: Error) => {
+      log('warn', record.id, 'FFmpeg stderr stream error', redactStderr(err.message));
+    });
 
     proc.stdout.on('end', () => {
       const recording = this.activeRecordings.get(record.id);
@@ -815,17 +1148,6 @@ export class CameraService {
         changed = true;
       }
 
-      const fpsMatch = output.match(/(\d+(?:\.\d+)?)\s*(?:fps|tbr)/i);
-
-      if (fpsMatch) {
-        const fps = Math.round(parseFloat(fpsMatch[1]));
-
-        if (st.fps !== fps) {
-          st.fps = fps;
-          changed = true;
-        }
-      }
-
       if (changed && this.onStatusChangeCb) {
         this.onStatusChangeCb(st);
       }
@@ -838,9 +1160,9 @@ export class CameraService {
       this.processes.delete(record.id);
 
       const uptimeSeconds = Math.round((Date.now() - startedAt) / 1000);
-      const safeStderr = stderrTail
-        .replace(/rtsp:\/\/[^\s/@]+:[^\s/@]+@/gi, 'rtsp://[redacted]@')
-        .trim();
+      // Strip FFmpeg progress noise + redact any credentials; keep the real error visible.
+      const safeStderr = redactStderr(stripProgressNoise(stderrTail));
+      const stderrSummary = [lastError, safeStderr].filter(Boolean).join(' | ') || 'No FFmpeg stderr output captured';
       log(
         code === 0 && !signal ? 'info' : 'warn',
         record.id,
@@ -858,12 +1180,21 @@ export class CameraService {
             : null,
           reconnectCount: this.reconnectAttempts.get(record.id) ?? 0,
           activeConsumers: this.getActiveStreamConsumerCount(record.id),
-          stderrTail: safeStderr || lastError || 'No FFmpeg stderr output captured',
+          stderrTail: stderrSummary,
         })
       );
 
-      // Only treat a session as stable after a full minute of uninterrupted video.
-      if (uptimeSeconds >= 60) this.reconnectAttempts.set(record.id, 0);
+      // Only treat a session as stable after a sustained period of uninterrupted video.
+      if (uptimeSeconds * 1000 >= RECONNECT_STABLE_RESET_MS && diagnostics.framesReceived > 0) {
+        this.reconnectAttempts.set(record.id, 0);
+      }
+
+      // UDP fallback: this RTSP server accepted TCP + SDP but sent no RTP-over-TCP
+      // (common on CP PLUS WiFi cameras). Retry over UDP once, without losing reliability.
+      if (diagnostics.framesReceived === 0 && activeTransport === 'tcp' && this.rtspTransportOverrides.get(record.id) !== 'udp') {
+        this.rtspTransportOverrides.set(record.id, 'udp');
+        log('warn', record.id, 'No frames over RTSP-TCP; falling back to RTSP-UDP transport');
+      }
 
       const st = this.statuses.get(record.id);
 
@@ -876,8 +1207,8 @@ export class CameraService {
       }
 
       if (st && st.status !== 'OFFLINE' && this.hasStreamConsumers(record.id)) {
-        if (code !== 0) {
-          this.updateStatus(record.id, 'ERROR', lastError || `Stream closed (code ${code})`);
+        if (code !== 0 || signal) {
+          this.updateStatus(record.id, 'ERROR', lastError || `Stream closed (code ${code ?? 'null'}${signal ? ` signal=${signal}` : ''})`);
         }
         this.scheduleReconnect(record);
       } else if (st && st.status !== 'OFFLINE') {
@@ -886,17 +1217,21 @@ export class CameraService {
     });
 
     proc.on('error', (err) => {
-      log('error', record.id, 'FFmpeg process error', err.message);
+      log('error', record.id, 'FFmpeg process error', redactStderr(err.message));
       if (this.processes.get(record.id) === proc) {
         this.clearStreamHealth(record.id, proc);
         this.processes.delete(record.id);
-        this.updateStatus(record.id, 'ERROR', err.message);
+        this.startingStreams.delete(record.id);
+        this.updateStatus(record.id, 'ERROR', redactStderr(err.message));
+        // A spawn/runtime error previously left no process and no reconnect; recover.
+        if (this.hasStreamConsumers(record.id)) this.scheduleReconnect(record);
       }
     });
   }
 
   private stopStream(id: string): void {
     this.clearStreamHealth(id);
+    this.startingStreams.delete(id);
 
     const recording = this.activeRecordings.get(id);
     if (recording && !recording.input.writableEnded) {
@@ -907,11 +1242,12 @@ export class CameraService {
     const proc = this.processes.get(id);
 
     if (proc) {
+      // Remove first so 'close' handler won't schedule a reconnect for a stopped stream.
       this.processes.delete(id);
       proc.stdout?.unpipe();
-      proc.kill('SIGKILL');
+      killProcessGracefully(proc);
 
-      log('info', id, `FFmpeg process ${proc.pid ?? 'unknown'} terminated with SIGKILL`);
+      log('info', id, `FFmpeg process ${proc.pid ?? 'unknown'} terminating`);
     }
 
     this.clearTimer(id, 'idle');
@@ -926,6 +1262,22 @@ export class CameraService {
     return (this.listeners.get(id)?.size ?? 0) + (this.activeRecordings.has(id) ? 1 : 0);
   }
 
+  private removeStreamWriter(res: Response): void {
+    this.streamWriters.get(res)?.dispose();
+    this.streamWriters.delete(res);
+  }
+
+  private writeLatestStreamFrame(id: string, res: Response, frame: Buffer): void {
+    const writer = this.streamWriters.get(res);
+    if (!writer || res.destroyed || res.writableEnded) {
+      this.removeStreamWriter(res);
+      this.listeners.get(id)?.delete(res);
+      return;
+    }
+
+    writer.write(frame);
+  }
+
   private checkStreamHealth(
     id: string,
     proc: ChildProcess,
@@ -936,7 +1288,25 @@ export class CameraService {
     const now = Date.now();
     const lastFrameAt = diagnostics.lastFrameAt ?? diagnostics.startedAt;
     const frameAgeMs = now - lastFrameAt;
-    if (frameAgeMs < STREAM_STALL_TIMEOUT_MS) return;
+    // No frames yet -> allow a longer startup grace; after first frame -> stall timeout.
+    const startupPending = diagnostics.lastFrameAt === null;
+    const transport = this.rtspTransportOverrides.get(id) ?? defaultRtspTransport();
+    // On TCP, fall back to UDP faster, but never exceed STREAM_STARTUP_TIMEOUT_MS.
+    const startupTimeoutMs = Math.min(
+      STREAM_STARTUP_TIMEOUT_MS,
+      transport === 'tcp' ? RTSP_TCP_FALLBACK_MS : STREAM_STARTUP_TIMEOUT_MS,
+    );
+    const timeoutMs = startupPending ? startupTimeoutMs : STREAM_STALL_TIMEOUT_MS;
+    if (frameAgeMs >= STREAM_FPS_IDLE_MS) {
+      const status = this.statuses.get(id);
+      if (status && status.fps !== 0) {
+        status.fps = 0;
+        this.onStatusChangeCb?.(status);
+      }
+      diagnostics.framesAtLastFpsSample = diagnostics.framesReceived;
+      diagnostics.lastFpsSampleAt = now;
+    }
+    if (frameAgeMs < timeoutMs) return;
 
     diagnostics.stalled = true;
     log('warn', id, 'No JPEG frames received; restarting stalled FFmpeg process', JSON.stringify({
@@ -955,7 +1325,8 @@ export class CameraService {
       activeConsumers: this.getActiveStreamConsumerCount(id),
     }));
     this.updateStatus(id, 'ERROR', 'No camera frames received; restarting the stream.');
-    proc.kill('SIGKILL');
+    // SIGKILL a hung FFmpeg; 'close' then triggers bounded reconnect.
+    killProcessGracefully(proc, true);
   }
 
   private clearStreamHealth(id: string, proc?: ChildProcess): void {
@@ -968,58 +1339,105 @@ export class CameraService {
 
   private scheduleReconnect(record: CameraRecord): void {
     if (!this.hasStreamConsumers(record.id)) {
-      log('info', record.id, 'No listeners — skipping reconnect');
+      log('info', record.id, 'No listeners - skipping reconnect');
       this.updateStatus(record.id, 'OFFLINE');
       return;
     }
 
+    // Never stack multiple pending reconnect timers for one camera.
+    this.clearTimer(record.id, 'reconnect');
+
     const attempts = (this.reconnectAttempts.get(record.id) ?? 0) + 1;
     this.reconnectAttempts.set(record.id, attempts);
 
-    const delay = Math.min(Math.pow(2, attempts) * 1000, 30000);
+    // Bounded retries: stop hammering an unreachable/overloaded camera.
+    if (attempts > MAX_RECONNECT_ATTEMPTS) {
+      log(
+        'error',
+        record.id,
+        `Reconnect limit reached (${MAX_RECONNECT_ATTEMPTS} attempts); giving up auto-reconnect`,
+      );
+      this.updateStatus(
+        record.id,
+        'ERROR',
+        `Stream reconnect limit reached (${MAX_RECONNECT_ATTEMPTS} attempts). Verify camera power/network, then retry.`,
+      );
+      return;
+    }
+
+    // Bounded exponential backoff.
+    const delay = computeReconnectDelayMs(attempts, RECONNECT_INITIAL_DELAY_MS, RECONNECT_MAX_DELAY_MS);
 
     log(
       'warn',
       record.id,
-      `Scheduling reconnect #${attempts} in ${delay / 1000}s`
+      `Scheduling reconnect #${attempts} in ${delay / 1000}s`,
     );
 
     this.updateStatus(
       record.id,
       'CONNECTING',
-      `Reconnecting... attempt ${attempts} (in ${delay / 1000}s)`
+      `Reconnecting... attempt ${attempts}/${MAX_RECONNECT_ATTEMPTS} (in ${delay / 1000}s)`,
     );
 
+    const timerKey = `${record.id}_reconnect`;
     const t = setTimeout(async () => {
+      this.timers.delete(timerKey);
       try {
         const latest = await this.repo.findById(record.id);
 
-        if (latest?.enabled) {
-          log('info', record.id, `Reconnect attempt #${attempts}`);
+        if (!latest?.enabled) return;
 
-          void this.startStream(latest).catch((err: unknown) => {
-            const message =
-              err instanceof Error ? err.message : String(err);
+        // Re-check nothing already restarted this stream + no pending stop.
+        if (this.processes.has(record.id) || this.startingStreams.has(record.id)) return;
+        if (!this.hasStreamConsumers(record.id)) return;
 
-            log('error', record.id, `Reconnect failed: ${message}`);
-            this.updateStatus(record.id, 'ERROR', message);
-          });
-        }
+        log('info', record.id, `Reconnect attempt #${attempts}`);
+
+        await this.startStream(latest, true).catch((err: unknown) => {
+          const message =
+            err instanceof Error ? err.message : String(err);
+          log('error', record.id, `Reconnect failed: ${redactStderr(message)}`);
+          // startStream already reports + reschedules on FFmpeg failure; only
+          // schedule again if it could not (e.g. spawn threw synchronously).
+          if (!this.processes.has(record.id) && this.hasStreamConsumers(record.id)) {
+            this.scheduleReconnect(record);
+          }
+        });
       } catch (err: unknown) {
         const message =
           err instanceof Error ? err.message : String(err);
-
-        log('error', record.id, `Reconnect failed: ${message}`);
-        this.updateStatus(record.id, 'ERROR', message);
+        log('error', record.id, `Reconnect failed: ${redactStderr(message)}`);
+        this.updateStatus(record.id, 'ERROR', redactStderr(message));
+        if (this.hasStreamConsumers(record.id)) this.scheduleReconnect(record);
       }
     }, delay);
+    t.unref?.();
 
-    this.timers.set(`${record.id}_reconnect`, t);
+    this.timers.set(timerKey, t);
   }
 
   // ─── PTZ Control ───────────────────────────────────────────────────────────
 
   async controlPTZ(
+    id: string,
+    action: PTZDirection,
+    speed: number = 5
+  ): Promise<{ success: boolean; message: string }> {
+    // Serialize per camera so concurrent PTZ calls can't interleave SOAP messages.
+    const prior = this.ptzQueues.get(id) ?? Promise.resolve();
+    const run = prior.catch(() => undefined).then(() => this.doControlPTZ(id, action, speed));
+    // Keep chain non-rejecting; callers get `run`.
+    const settled = run.then(() => undefined, () => undefined);
+    this.ptzQueues.set(id, settled);
+    // Drop the map entry once this link is the tail and has settled.
+    void settled.then(() => {
+      if (this.ptzQueues.get(id) === settled) this.ptzQueues.delete(id);
+    });
+    return run;
+  }
+
+  private async doControlPTZ(
     id: string,
     action: PTZDirection,
     speed: number = 5
@@ -1171,9 +1589,10 @@ export class CameraService {
       status,
       ipAddress: record.ipAddress,
       resolution: record.resolution ?? 'N/A',
-      fps: record.fps ?? 0,
+      fps: 0,
       connectionTime: null,
-      reconnectAttempts: 0,
+      reconnectAttempts: this.reconnectAttempts.get(record.id) ?? 0,
+      lastFrameAt: null,
     };
   }
 
@@ -1189,6 +1608,12 @@ export class CameraService {
 
     st.status = status;
     st.error = error;
+    if (status !== 'ONLINE') {
+      st.fps = 0;
+    }
+
+    // Keep reconnect accounting visible + accurate for consumers.
+    st.reconnectAttempts = this.reconnectAttempts.get(id) ?? st.reconnectAttempts;
 
     if (connectionTime) {
       st.connectionTime = connectionTime;
@@ -1198,6 +1623,7 @@ export class CameraService {
       st.connectionTime = null;
       st.fps = 0;
       st.resolution = 'N/A';
+      st.lastFrameAt = null;
     }
 
     this.onStatusChangeCb?.(st);
@@ -1234,6 +1660,17 @@ export class CameraService {
       return { message: 'Snapshot captured (simulated)', path: outFile };
     }
 
+    // Prefer reusing the live shared stream's latest frame over opening a
+    // SECOND RTSP session on the camera (many cameras cap concurrent streams).
+    const live = this.streamDiagnostics.get(id);
+    if (this.processes.has(id) && live?.lastFrame && live.lastFrame.length > 0) {
+      try {
+        fs.writeFileSync(outFile, live.lastFrame);
+        log('info', id, `Snapshot saved from live stream: ${outFile}`);
+        return { message: 'Snapshot saved', path: outFile };
+      } catch { /* fall back to a one-shot RTSP probe */ }
+    }
+
     let password = '';
     try { password = getDecryptedPassword(record); } catch { password = ''; }
     const customPath = getDecryptedRtspPath(record);
@@ -1243,6 +1680,8 @@ export class CameraService {
 
     await new Promise<void>((resolve, reject) => {
       const proc = spawn(ffmpegInstaller.path, [
+        '-nostdin',
+        '-hide_banner',
         '-rtsp_transport', 'tcp',
         '-stimeout', '3000000',
         '-i', rtspUrl,
@@ -1251,11 +1690,16 @@ export class CameraService {
         '-y', outFile,
       ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
-      const timer = setTimeout(() => { proc.kill(); reject(new Error('Snapshot timed out')); }, 10000);
+      // Drain stderr so FFmpeg can't block on a full pipe; never log it raw (may contain RTSP creds).
+      let stderrTail = '';
+      proc.stderr?.on('data', (chunk: Buffer) => { stderrTail = `${stderrTail}${chunk.toString()}`.slice(-1000); });
+      proc.stderr?.on('error', () => {});
+
+      const timer = setTimeout(() => { killProcessGracefully(proc, true); reject(new Error('Snapshot timed out')); }, 10000);
       proc.on('close', (code) => {
         clearTimeout(timer);
         if (code === 0 || fs.existsSync(outFile)) resolve();
-        else reject(new Error(`Snapshot FFmpeg exited with code ${code}`));
+        else reject(new Error(`Snapshot FFmpeg exited with code ${code}${stderrTail ? `: ${redactStderr(stderrTail).trim().slice(-200)}` : ''}`));
       });
       proc.on('error', (err) => { clearTimeout(timer); reject(err); });
     });
