@@ -347,13 +347,9 @@ export async function signUpWithEmail(input: SignUpInput) {
 
   // If registering as caregiver with an Elder ID, create the relationship record
   if (profile.role === 'caregiver' && rawElderId) {
-    try {
-      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
-      if (!linkResult.success) {
-        console.warn('[signUpWithEmail] Initial elder connection notice:', linkResult.message);
-      }
-    } catch (linkErr) {
-      console.warn('[signUpWithEmail] Caregiver linking error:', linkErr);
+    const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+    if (!linkResult.success) {
+      throw new Error(linkResult.message);
     }
   }
 
@@ -394,13 +390,9 @@ export async function saveProfileForCurrentUser(
   }
 
   if (profile.role === 'caregiver' && rawElderId) {
-    try {
-      const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
-      if (!linkResult.success) {
-        console.warn('[saveProfileForCurrentUser] Initial elder connection notice:', linkResult.message);
-      }
-    } catch (linkErr) {
-      console.warn('[saveProfileForCurrentUser] Caregiver linking error:', linkErr);
+    const linkResult = await connectCaregiverToElder(profile.uid, rawElderId);
+    if (!linkResult.success) {
+      throw new Error(linkResult.message);
     }
   }
 
@@ -453,4 +445,3 @@ export async function sendPasswordReset(email: string) {
 }
 
 export { formatFirebaseError };
-

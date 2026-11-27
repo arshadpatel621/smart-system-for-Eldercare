@@ -5,13 +5,15 @@ import {
   getDoc,
   getDocs,
   query,
+  serverTimestamp,
+  Timestamp,
   setDoc,
   where,
 } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { ensureEldercareRecord } from '../lib/eldercareStore';
 import type { AppUserProfile } from '../types/auth';
-import type { Relationship } from '../types/relationship';
+import type { Relationship, RelationshipRegistryEntry } from '../types/relationship';
 
 const LOCAL_RELATIONSHIPS_KEY = 'eldercare-relationships-demo';
 const USER_PROFILE_CACHE_KEY = 'eldercare-user-profile';
@@ -157,7 +159,7 @@ export async function findElderByElderId(elderId: string): Promise<AppUserProfil
 
 /**
  * Connects a registered Caregiver to an Elder using the Elder ID.
- * Validates identity, prevents duplicates, stores relationship doc, and updates linkedElderIds.
+ * Firestore rules validate the relationship against the authenticated profiles and Elder ID record.
  */
 export async function connectCaregiverToElder(
   caregiverUid: string,
@@ -220,23 +222,14 @@ export async function connectCaregiverToElder(
     caregiverProfile = readCachedProfile(caregiverUid);
   }
 
-  if (caregiverProfile && caregiverProfile.role !== 'caregiver') {
+  if (!caregiverProfile || caregiverProfile.role !== 'caregiver') {
     return {
       success: false,
       message: 'Only registered Caregivers can connect to Elders.',
     };
   }
 
-  // 6. Check for duplicate connection in caregiver profile
-  if (caregiverProfile?.linkedElderIds?.includes(normalizedElderId)) {
-    return {
-      success: false,
-      message: 'This Elder is already connected to your account.',
-    };
-  }
-
   const relationshipId = `rel-${caregiverUid}-${normalizedElderId}`;
-  const legacyRelationshipId = `rel-${caregiverUid}-${elderProfile.uid}`;
 
   const newRelationship: Relationship = {
     id: relationshipId,
@@ -247,7 +240,7 @@ export async function connectCaregiverToElder(
     createdAt: new Date().toISOString(),
   };
 
-  // 7. Handle local offline mode
+  // Handle local demo mode without treating the profile's linked-ID cache as authorization.
   if (!db) {
     const localRels = readLocalRelationships();
     if (
@@ -281,28 +274,25 @@ export async function connectCaregiverToElder(
     };
   }
 
-  // 8. Firestore execution: check duplicate relationships & commit link
+  // Firestore rules are authoritative; this query is only a friendly duplicate check.
   try {
-    const relRef = doc(db, 'relationships', relationshipId);
-    const relSnap = await getDoc(relRef);
-    if (relSnap.exists()) {
+    const caregiverRelationships = await getDocs(query(
+      collection(db, 'relationships'),
+      where('caregiverUid', '==', caregiverUid)
+    ));
+    if (caregiverRelationships.docs.some(
+      (relationship) => relationship.data().elderUid === elderProfile.uid
+    )) {
       return {
         success: false,
         message: 'This Elder is already connected to your account.',
       };
     }
 
-    const legacyRelRef = doc(db, 'relationships', legacyRelationshipId);
-    const legacyRelSnap = await getDoc(legacyRelRef);
-    if (legacyRelSnap.exists()) {
-      return {
-        success: false,
-        message: 'This Elder is already connected to your account.',
-      };
-    }
-
-    // Create primary relationship document
-    await setDoc(relRef, newRelationship);
+    await setDoc(doc(db, 'relationships', relationshipId), {
+      ...newRelationship,
+      createdAt: serverTimestamp(),
+    });
 
     // Update caregiver's linkedElderIds in Firestore
     const caregiverRef = doc(db, 'users', caregiverUid);
@@ -352,14 +342,28 @@ export async function connectCaregiverToElder(
 export async function getLinkedEldersForCaregiver(
   caregiverProfile: AppUserProfile
 ): Promise<AppUserProfile[]> {
-  const linkedIds = caregiverProfile.linkedElderIds || [];
-  if (linkedIds.length === 0) {
-    return [];
+  let linkedIds: string[];
+  if (db) {
+    const relationships = await getDocs(query(
+      collection(db, 'relationships'),
+      where('caregiverUid', '==', caregiverProfile.uid),
+      where('status', '==', 'active')
+    ));
+    linkedIds = relationships.docs.map((snapshot) =>
+      (snapshot.data() as Relationship).elderId
+    );
+  } else {
+    linkedIds = readLocalRelationships()
+      .filter((relationship) =>
+        relationship.caregiverUid === caregiverProfile.uid
+        && relationship.status === 'active'
+      )
+      .map((relationship) => relationship.elderId);
   }
 
   const elders: AppUserProfile[] = [];
 
-  for (const id of linkedIds) {
+  for (const id of new Set(linkedIds)) {
     try {
       const elder = await findElderByElderId(id);
       if (elder) {
@@ -430,5 +434,52 @@ export async function getAllRelationships(): Promise<Relationship[]> {
   }
 
   const snapshot = await getDocs(collection(db, 'relationships'));
-  return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Relationship);
+  return snapshot.docs.map((relationship) => {
+    const data = relationship.data();
+    const rawCreatedAt = data.createdAt;
+    const createdAt = rawCreatedAt instanceof Timestamp
+      ? rawCreatedAt.toDate().toISOString()
+      : rawCreatedAt instanceof Date
+        ? rawCreatedAt.toISOString()
+        : typeof rawCreatedAt === 'string'
+          ? rawCreatedAt
+          : '';
+    const status = data.status === 'active' || data.status === 'inactive'
+      ? data.status
+      : 'inactive';
+
+    return {
+      id: relationship.id,
+      caregiverUid: String(data.caregiverUid ?? ''),
+      elderUid: String(data.elderUid ?? ''),
+      elderId: String(data.elderId ?? ''),
+      status,
+      createdAt,
+    };
+  });
+}
+
+export async function getRelationshipRegistry(): Promise<RelationshipRegistryEntry[]> {
+  const relationships = await getAllRelationships();
+  const profiles = new Map<string, AppUserProfile>();
+
+  if (db) {
+    const users = await getDocs(collection(db, 'users'));
+    for (const user of users.docs) {
+      profiles.set(user.id, { ...user.data(), uid: user.id } as AppUserProfile);
+    }
+  } else {
+    const cachedKeys = Object.keys(localStorage)
+      .filter((key) => key.startsWith(`${USER_PROFILE_CACHE_KEY}:`));
+    for (const key of cachedKeys) {
+      const profile = readCachedProfile(key.slice(USER_PROFILE_CACHE_KEY.length + 1));
+      if (profile) profiles.set(profile.uid, profile);
+    }
+  }
+
+  return relationships.map((relationship) => ({
+    ...relationship,
+    caregiverName: profiles.get(relationship.caregiverUid)?.fullName || 'Unknown caregiver',
+    elderName: profiles.get(relationship.elderUid)?.fullName || 'Unknown elder',
+  }));
 }
