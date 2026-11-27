@@ -1,4 +1,4 @@
-   import { useState } from 'react';
+   import { useEffect, useState } from 'react';
 import { useCameraManager } from '../hooks/useCameraManager';
 import {
   BRAND_LABELS, LOCATION_LABELS,
@@ -645,6 +645,69 @@ export default function CameraManagement() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [probeTargetId, setProbeTargetId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'cameras' | 'discover'>('cameras');
+  const [v2Health, setV2Health] = useState<{ status: 'online' | 'offline'; cameraId?: string; timestamp: string } | null>(null);
+  const [clock, setClock] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:5000';
+    const wsUrl = apiBase.replace(/^http/, 'ws');
+    let ws: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data as string);
+            if (msg.type === 'ai_alert' && msg.data?.type === 'v2_agent_status') {
+              const status = msg.data?.details?.status;
+              if (status === 'online' || status === 'offline') {
+                setV2Health({
+                  status,
+                  cameraId: msg.data.cameraId,
+                  timestamp: msg.data.timestamp || new Date().toISOString(),
+                });
+              }
+            }
+          } catch { /* ignore */ }
+        };
+        ws.onclose = () => { if (!closed) reconnectTimer = window.setTimeout(connect, 5000); };
+        ws.onerror = () => ws?.close();
+      } catch {
+        reconnectTimer = window.setTimeout(connect, 5000);
+      }
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, []);
+
+  const v2HeartbeatFresh = v2Health?.status === 'online'
+    && clock - Date.parse(v2Health.timestamp) < 15000;
+  const v2StatusLabel = !v2Health
+    ? 'Status Unknown'
+    : v2Health.status === 'offline'
+      ? 'Offline'
+      : v2HeartbeatFresh
+        ? 'Online'
+        : 'Heartbeat Stale';
+  const v2StatusColor = v2HeartbeatFresh
+    ? 'text-emerald-700'
+    : v2Health
+      ? 'text-amber-700'
+      : 'text-slate-600';
 
   const openAdd = (ip: string = '', onvifPort?: number, discoveredRtspPath?: string) => {
     setEditTarget(null);
@@ -691,26 +754,38 @@ export default function CameraManagement() {
           </p>
 
           {/* Agent Status Badge Banner */}
-          <div className="mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-bold border shadow-sm">
-            {agentStatus === 'online' ? (
-              <span className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border-emerald-200">
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                VitalCare Local Agent Active (http://127.0.0.1:8000)
+          <div className="mt-4 flex flex-wrap gap-3">
+            <div className="inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-bold border shadow-sm">
+              {agentStatus === 'online' ? (
+                <span className="flex items-center gap-2 text-emerald-700">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Optional discovery helper active (127.0.0.1:8000)
+                </span>
+              ) : agentStatus === 'checking' ? (
+                <span className="flex items-center gap-2 text-slate-600">
+                  <span className="material-symbols-outlined text-xs animate-spin">progress_activity</span>
+                  Checking optional discovery helper...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2 text-amber-700">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  Discovery helper offline; backend fallback is available
+                  <button onClick={() => void checkAgent()} className="underline ml-2 hover:text-amber-900">
+                    Re-check
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-bold border shadow-sm">
+              <span
+                title="This reports whether the V2 inference process is sending recent status events. It is separate from camera streaming and does not mean model files are missing."
+                className={`flex items-center gap-2 ${v2StatusColor}`}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full ${v2HeartbeatFresh ? 'bg-emerald-500 animate-pulse' : v2Health ? 'bg-amber-500' : 'bg-slate-400'}`} />
+                V2 Inference Agent {v2StatusLabel}
+                {v2Health?.cameraId ? <span className="font-medium opacity-70">({v2Health.cameraId.slice(0, 8)})</span> : null}
               </span>
-            ) : agentStatus === 'checking' ? (
-              <span className="flex items-center gap-2 text-slate-600 bg-slate-100 border-slate-200">
-                <span className="material-symbols-outlined text-xs animate-spin">progress_activity</span>
-                Checking Local Agent Status...
-              </span>
-            ) : (
-              <span className="flex items-center gap-2 text-amber-700 bg-amber-50 border-amber-200">
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                VitalCare Camera Agent: Offline
-                <button onClick={() => void checkAgent()} className="underline ml-2 hover:text-amber-900">
-                  Re-check
-                </button>
-              </span>
-            )}
+            </div>
           </div>
         </div>
 

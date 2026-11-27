@@ -4,6 +4,7 @@ import type { CameraRecording } from '../services/camera';
 
 interface CameraPlayerProps {
   cameraId: string;
+  autoConnect?: boolean;
 }
 
 type TrackedPerson = {
@@ -12,6 +13,9 @@ type TrackedPerson = {
   state: 'green' | 'yellow' | 'red';
   reason: string;
   box: [number, number, number, number];
+  keypoints?: [number, number, number][];
+  activity?: string;
+  activityConfidence?: number;
 };
 
 type DetectionSnapshot = {
@@ -22,12 +26,36 @@ type DetectionSnapshot = {
   receivedAt: number;
 };
 
+const SKELETON_CONNECTIONS: { from: number; to: number; color: string }[] = [
+  // Head and neck
+  { from: 0, to: 1, color: '#ffd166' }, { from: 0, to: 2, color: '#ffd166' },
+  { from: 1, to: 3, color: '#ffd166' }, { from: 2, to: 4, color: '#ffd166' },
+  { from: 0, to: 5, color: '#58e1d1' }, { from: 0, to: 6, color: '#58e1d1' },
+  // Shoulders and torso
+  { from: 5, to: 6, color: '#58e1d1' }, { from: 5, to: 11, color: '#58e1d1' },
+  { from: 6, to: 12, color: '#58e1d1' }, { from: 11, to: 12, color: '#58e1d1' },
+  // Arms
+  { from: 5, to: 7, color: '#ff9f43' }, { from: 7, to: 9, color: '#ff9f43' },
+  { from: 6, to: 8, color: '#45c4f2' }, { from: 8, to: 10, color: '#45c4f2' },
+  // Legs
+  { from: 11, to: 13, color: '#b49aff' }, { from: 13, to: 15, color: '#b49aff' },
+  { from: 12, to: 14, color: '#86d17b' }, { from: 14, to: 16, color: '#86d17b' },
+];
+
+const KEYPOINT_COLORS = [
+  '#ffd166', '#ffd166', '#ffd166', '#ffd166', '#ffd166',
+  '#ff9f43', '#45c4f2', '#ff9f43', '#45c4f2', '#ff9f43', '#45c4f2',
+  '#b49aff', '#86d17b', '#b49aff', '#86d17b', '#b49aff', '#86d17b',
+];
+
+const isFallActivity = (activity?: string) => activity === 'FALL' || activity === 'FALLEN';
+
 /**
  * CameraPlayer component handles the streaming video display, PTZ directional
  * controls, and a recording panel with a live countdown timer.
  * Direction buttons and recording controls are always visible beneath the feed.
  */
-export function CameraPlayer({ cameraId }: CameraPlayerProps) {
+export function CameraPlayer({ cameraId, autoConnect = false }: CameraPlayerProps) {
   const {
     status,
     loading,
@@ -56,7 +84,6 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
   const [activeTab, setActiveTab] = useState<'live' | 'playback' | 'ptz'>('live');
   const [detections, setDetections] = useState<DetectionSnapshot | null>(null);
   const [clock, setClock] = useState(Date.now());
-  const webSocketWasConnectedRef = useRef(false);
 
   useEffect(() => {
     setDetections(null);
@@ -220,16 +247,10 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
   const isConnecting = status?.status === 'CONNECTING';
   const isOffline = status?.status === 'OFFLINE' || !status;
   const isError = status?.status === 'ERROR';
+  const shouldAttachStream = isOnline || (autoConnect && !isError);
+  const showConnecting = isConnecting || (autoConnect && !isOnline && !isError);
   useEffect(() => {
-    if (webSocketStatus === 'connected') {
-      webSocketWasConnectedRef.current = true;
-      return;
-    }
-
-    const shouldRecover = imgError || (
-      webSocketStatus === 'disconnected' && webSocketWasConnectedRef.current
-    );
-    if (!isOnline || !shouldRecover) return;
+    if ((!isOnline && !(autoConnect && !isError)) || !imgError) return;
 
     const retryTimer = window.setTimeout(() => {
       setReloadKey((key) => key + 1);
@@ -237,11 +258,7 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
     }, 4000);
 
     return () => window.clearTimeout(retryTimer);
-  }, [imgError, isOnline, webSocketStatus]);
-
-  useEffect(() => {
-    webSocketWasConnectedRef.current = false;
-  }, [cameraId]);
+  }, [autoConnect, imgError, isError, isOnline]);
 
   const ptzEnabled = isOnline && capabilities?.supportsPTZ === true;
   const beginPtzMove = (action: 'left' | 'right' | 'up' | 'down' | 'zoom_in' | 'zoom_out') =>
@@ -260,6 +277,19 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
     },
     { green: 0, yellow: 0, red: 0 },
   );
+  const confirmedFallPersons = detectionIsFresh
+    ? detections?.persons.filter((person) => person.state === 'red') ?? []
+    : [];
+  const possibleFallPersons = detectionIsFresh
+    ? detections?.persons.filter((person) =>
+        person.state === 'yellow' && (isFallActivity(person.activity) || /possible fall/i.test(person.reason)),
+      ) ?? []
+    : [];
+  const fallBanner = confirmedFallPersons.length > 0
+    ? { confirmed: true, persons: confirmedFallPersons }
+    : possibleFallPersons.length > 0
+      ? { confirmed: false, persons: possibleFallPersons }
+      : null;
 
   // Format seconds → MM:SS
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -269,7 +299,7 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
       {/* ── Aspect Video Stream Canvas ─────────────────────────────────────── */}
       <div className="relative aspect-video w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 shadow-xl group">
         {/* ONLINE Video Stream */}
-        {isOnline && !imgError && (
+        {shouldAttachStream && !imgError && (
           <img
             key={`${streamUrl}-${reloadKey}`}
             src={streamUrl}
@@ -288,33 +318,129 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           >
             {detections.persons.map((person, index) => {
               const [x1, y1, x2, y2] = person.box;
-              const color = person.state === 'red' ? '#ef4444' : person.state === 'yellow' ? '#facc15' : '#22c55e';
-              const label = `${person.state === 'red' ? 'FALL' : person.state === 'yellow' ? 'RISK' : 'NORMAL'} · DET ${Math.round(person.confidence * 100)}%`;
+              const activityLabel = person.activity ? ` · ${person.activity}` : '';
+              const confPct = Math.round((person.activityConfidence ?? person.confidence) * 100);
+              const confirmedFall = person.state === 'red';
+              const possibleFall = person.state === 'yellow' && (isFallActivity(person.activity) || /possible fall/i.test(person.reason));
+              const boxColor = confirmedFall ? '#ff3548' : possibleFall ? '#ffc247' : '#3be477';
+              const personLabel = confirmedFall
+                ? `FALL DETECTED · ${person.trackId === null ? 'Person' : `ID ${person.trackId}`}`
+                : possibleFall
+                  ? `POSSIBLE FALL · ${person.trackId === null ? 'Person' : `ID ${person.trackId}`}`
+                  : `${person.trackId === null ? 'Person' : `ID ${person.trackId}`}${activityLabel} · ${confPct}%`;
+              const strokeW = 3.5;
+              const pointRadius = 5;
+              const labelFontSize = 16;
+              const labelWidth = Math.max(112, personLabel.length * 9 + 18);
+              const labelY = Math.max(25, y1 - 8);
 
               return (
                 <g key={`${person.trackId ?? 'untracked'}-${index}`}>
+                  {Array.isArray(person.keypoints) && person.keypoints.length === 17 && (
+                    <>
+                      {SKELETON_CONNECTIONS.map(({ from, to, color }, lineIndex) => {
+                        const pa = person.keypoints![from];
+                        const pb = person.keypoints![to];
+                        if (!pa || !pb || pa[2] < 0.2 || pb[2] < 0.2) return null;
+                        return (
+                          <g key={`${lineIndex}-${from}-${to}`}>
+                            <line
+                              x1={pa[0]}
+                              y1={pa[1]}
+                              x2={pb[0]}
+                              y2={pb[1]}
+                              stroke="#07111c"
+                              strokeWidth={strokeW + 3}
+                              vectorEffect="non-scaling-stroke"
+                              strokeLinecap="round"
+                              opacity="0.9"
+                            />
+                            <line
+                              x1={pa[0]}
+                              y1={pa[1]}
+                              x2={pb[0]}
+                              y2={pb[1]}
+                              stroke={color}
+                              strokeWidth={strokeW}
+                              vectorEffect="non-scaling-stroke"
+                              strokeLinecap="round"
+                              opacity={Math.min(1, 0.55 + Math.min(pa[2], pb[2]) * 0.45)}
+                            />
+                          </g>
+                        );
+                      })}
+                      {person.keypoints.map((kp, kpIndex) => (
+                        kp[2] >= 0.2 ? (
+                          <g key={`kp-${kpIndex}`}>
+                            <circle
+                              cx={kp[0]}
+                              cy={kp[1]}
+                              r={pointRadius + 2}
+                              fill="#07111c"
+                              opacity="0.9"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                            <circle
+                              cx={kp[0]}
+                              cy={kp[1]}
+                              r={pointRadius}
+                              fill={KEYPOINT_COLORS[kpIndex]}
+                              stroke="#ffffff"
+                              strokeWidth="1.5"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                            <circle
+                              cx={kp[0]}
+                              cy={kp[1]}
+                              r="1.4"
+                              fill="#ffffff"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </g>
+                        ) : null
+                      ))}
+                    </>
+                  )}
                   <rect
                     x={x1}
                     y={y1}
-                    width={x2 - x1}
-                    height={y2 - y1}
+                    width={Math.max(1, x2 - x1)}
+                    height={Math.max(1, y2 - y1)}
                     fill="none"
-                    stroke={color}
-                    strokeWidth={Math.max(3, detections.frameWidth / 400)}
+                    stroke="#07111c"
+                    strokeWidth="7"
+                    vectorEffect="non-scaling-stroke"
+                    opacity="0.9"
+                  />
+                  <rect
+                    x={x1}
+                    y={y1}
+                    width={Math.max(1, x2 - x1)}
+                    height={Math.max(1, y2 - y1)}
+                    rx="2"
+                    fill="none"
+                    stroke={boxColor}
+                    strokeWidth="3.5"
                     vectorEffect="non-scaling-stroke"
                   />
-                  <text
+                  <rect
                     x={x1}
-                    y={Math.max(24, y1 - 8)}
+                    y={labelY - 23}
+                    width={Math.min(labelWidth, Math.max(112, detections.frameWidth - x1))}
+                    height="23"
+                    rx="3"
+                    fill={boxColor}
+                    opacity="0.96"
+                  />
+                  <text
+                    x={x1 + 9}
+                    y={labelY - 7}
                     textAnchor="start"
-                    fill={color}
-                    stroke="#0f172a"
-                    strokeWidth="4"
-                    paintOrder="stroke"
-                    fontSize={Math.max(18, detections.frameWidth / 45)}
+                    fill="#07111c"
+                    fontSize={labelFontSize}
                     fontWeight="700"
                   >
-                    {person.trackId === null ? 'Person' : `ID ${person.trackId}`} · {label}
+                    {personLabel}
                   </text>
                 </g>
               );
@@ -322,22 +448,51 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           </svg>
         )}
 
+        {isOnline && !imgError && fallBanner && (
+          <div
+            role="status"
+            aria-live="assertive"
+            className={`pointer-events-none absolute left-4 top-4 z-20 flex max-w-[calc(100%-2rem)] items-center gap-3 border-l-4 px-4 py-3 text-white shadow-xl ${
+              fallBanner.confirmed
+                ? 'border-rose-200 bg-rose-700/95'
+                : 'border-amber-100 bg-amber-600/95'
+            }`}
+          >
+            <span className="material-symbols-outlined shrink-0 text-2xl" aria-hidden="true">
+              {fallBanner.confirmed ? 'warning' : 'error'}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-black uppercase tracking-wide sm:text-base">
+                {fallBanner.confirmed ? 'Fall event detected' : 'Possible fall'}
+              </span>
+              <span className="block truncate text-xs font-semibold text-white/90">
+                {fallBanner.persons.map((person) =>
+                  person.trackId === null ? 'Person' : `Person ${person.trackId}`,
+                ).join(', ')}
+                {fallBanner.confirmed ? ' · Verify immediately' : ' · Monitoring'}
+              </span>
+            </span>
+          </div>
+        )}
+
         {/* CONNECTING State Overlay */}
-        {(isConnecting || (isOnline && loading)) && (
+        {showConnecting && !imgError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 text-white z-10 space-y-4">
             <span className="material-symbols-outlined text-4xl animate-spin text-blue-400">
               progress_activity
             </span>
             <div className="text-center">
-              <p className="font-bold">Establishing RTSP Connection...</p>
-              <p className="text-xs text-slate-400 mt-1">Transcoding H.264 video streams on-the-fly</p>
+              <p className="font-bold">Waiting for camera video...</p>
+              <p className="text-xs text-slate-400 mt-1">The backend clears this when it receives the first complete frame.</p>
             </div>
-            <button
-              onClick={() => void stop()}
-              className="mt-2 rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-xs font-semibold hover:bg-white/10 transition-colors"
-            >
-              Cancel Connection
-            </button>
+            {!autoConnect && (
+              <button
+                onClick={() => void stop()}
+                className="mt-2 rounded-full border border-white/20 bg-white/5 px-4 py-1.5 text-xs font-semibold hover:bg-white/10 transition-colors"
+              >
+                Cancel Connection
+              </button>
+            )}
           </div>
         )}
 
@@ -378,7 +533,7 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
         )}
 
         {/* OFFLINE State Overlay */}
-        {isOffline && !isConnecting && !isError && (
+        {isOffline && !isConnecting && !isError && !autoConnect && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 text-white z-10 space-y-4">
             <div className="rounded-full bg-slate-900 border border-slate-800 p-4 text-slate-400">
               <span className="material-symbols-outlined text-5xl">videocam_off</span>
@@ -400,7 +555,7 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
         )}
 
         {/* IMAGE LOADING / TRANSCODING DELAY State Overlay */}
-        {isOnline && imgError && (
+        {(isOnline || (autoConnect && !isError)) && imgError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-white z-10 space-y-4">
             <span className="material-symbols-outlined text-4xl text-amber-400 animate-pulse">sensors</span>
             <div className="text-center px-4">
@@ -479,11 +634,11 @@ export function CameraPlayer({ cameraId }: CameraPlayerProps) {
           ) : (
             <button
               onClick={() => void start()}
-              disabled={loading}
+              disabled={loading || (autoConnect && !isError)}
               className="flex items-center gap-1.5 rounded-full bg-blue-600 px-5 py-2 text-sm font-bold text-white shadow-md hover:bg-blue-700 transition-colors"
             >
               <span className="material-symbols-outlined text-sm">play_arrow</span>
-              {isError ? 'Retry Connection' : 'Start Camera'}
+              {isError ? 'Retry Connection' : autoConnect ? 'Connecting...' : 'Start Camera'}
             </button>
           )}
         </div>

@@ -8,7 +8,7 @@ export default function CaregiverLiveMonitor() {
         Caregiver Live Camera Surveillance — Complete PTZ Directional Movement & Motion Tracking Controls
       </div>
 
-      <LiveMonitor />
+      <LiveMonitor autoConnectCamera />
     </div>
   );
 }

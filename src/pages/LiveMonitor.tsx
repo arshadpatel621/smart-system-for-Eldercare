@@ -17,12 +17,46 @@ type DetectionSnapshot = {
   persons: DetectionPerson[];
 };
 
+const V2_ACTIVITY_CLASSES = [
+  'FALL',
+  'FALLEN',
+  'LIE_DOWN',
+  'LYING',
+  'OTHER',
+  'SIT_DOWN',
+  'SITTING',
+  'STAND_UP',
+  'STANDING',
+  'WALKING',
+] as const;
+
+type ActivityClass = (typeof V2_ACTIVITY_CLASSES)[number];
+
+type ActivityPrediction = {
+  cameraId: string;
+  timestamp: string;
+  trackId: number;
+  activity: ActivityClass;
+  confidence: number;
+  classProbabilities: Record<ActivityClass, number>;
+};
+
+type V2AgentStatus = {
+  cameraId: string;
+  timestamp: string;
+  status: 'online' | 'offline';
+};
+
+interface LiveMonitorProps {
+  autoConnectCamera?: boolean;
+}
+
 /**
  * LiveMonitor renders the unified surveillance feed, health status parameters,
  * camera tabs switcher, and incident alert logging workflows.
  * Only enabled cameras are listed.
  */
-export default function LiveMonitor() {
+export default function LiveMonitor({ autoConnectCamera = false }: LiveMonitorProps) {
   const { createSafetyEvent } = useEldercare();
   const [cameras, setCameras] = useState<CameraPublicRecord[]>([]);
   const [statuses, setStatuses] = useState<Record<string, CameraStatusType>>({});
@@ -31,6 +65,8 @@ export default function LiveMonitor() {
   const [error, setError] = useState('');
   const [aiEvents, setAiEvents] = useState<Array<{ type: string; cameraId: string; timestamp: string }>>([]);
   const [detectionSnapshot, setDetectionSnapshot] = useState<DetectionSnapshot | null>(null);
+  const [activityPredictions, setActivityPredictions] = useState<ActivityPrediction[]>([]);
+  const [v2AgentStatus, setV2AgentStatus] = useState<V2AgentStatus | null>(null);
   const [clock, setClock] = useState(Date.now());
 
   // Plays a warning siren sound using browser-native synthesizer
@@ -99,6 +135,29 @@ export default function LiveMonitor() {
   }, [loadCameras]);
 
   useEffect(() => {
+    if (!activeCameraId) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void fetchAllStatuses()
+        .then((statusList) => {
+          if (!active) return;
+          setStatuses(statusList.reduce((acc, curr) => {
+            acc[curr.id] = curr;
+            return acc;
+          }, {} as Record<string, CameraStatusType>));
+        })
+        .catch((err: unknown) => {
+          console.error('[LiveMonitor] Failed to refresh camera statuses:', err);
+        });
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeCameraId]);
+
+  useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -108,6 +167,49 @@ export default function LiveMonitor() {
     const handleCameraAlert = (e: Event) => {
       const customEvent = e as CustomEvent;
       const eventDetails = customEvent.detail;
+
+      if (eventDetails.type === 'v2_agent_status') {
+        const status = eventDetails.details?.status;
+        if (status === 'online' || status === 'offline') {
+          setV2AgentStatus({
+            cameraId: eventDetails.cameraId,
+            timestamp: eventDetails.timestamp || new Date().toISOString(),
+            status,
+          });
+        }
+        return;
+      }
+
+      if (eventDetails.type === 'activity_classified') {
+        const details = eventDetails.details;
+        if (
+          !details ||
+          !Number.isInteger(details.trackId) ||
+          !V2_ACTIVITY_CLASSES.includes(details.activity) ||
+          typeof eventDetails.confidence !== 'number' ||
+          !Number.isFinite(eventDetails.confidence) ||
+          !details.classProbabilities ||
+          !V2_ACTIVITY_CLASSES.every((activityClass) =>
+            typeof details.classProbabilities[activityClass] === 'number' &&
+            Number.isFinite(details.classProbabilities[activityClass])
+          )
+        ) {
+          return;
+        }
+        const prediction: ActivityPrediction = {
+          cameraId: eventDetails.cameraId,
+          timestamp: eventDetails.timestamp || new Date().toISOString(),
+          trackId: details.trackId,
+          activity: details.activity,
+          confidence: eventDetails.confidence,
+          classProbabilities: details.classProbabilities,
+        };
+        setActivityPredictions((previous) => [
+          ...previous.filter((item) => item.cameraId !== prediction.cameraId || item.trackId !== prediction.trackId),
+          prediction,
+        ].slice(-30));
+        return;
+      }
 
       if (eventDetails.type === 'person_detection_update') {
         const details = eventDetails.details;
@@ -240,6 +342,8 @@ export default function LiveMonitor() {
                   onClick={() => {
                     setActiveCameraId(cam.id);
                     setDetectionSnapshot(null);
+                    setActivityPredictions([]);
+                    setV2AgentStatus(null);
                   }}
                   className={`px-6 py-3 text-sm font-bold border-b-2 transition-all flex items-center gap-1.5 ${
                     isActive
@@ -256,7 +360,7 @@ export default function LiveMonitor() {
 
           <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
             {/* Live Feed Screen Component */}
-            <CameraPlayer cameraId={activeCameraId} />
+            <CameraPlayer cameraId={activeCameraId} autoConnect={autoConnectCamera} />
 
             {/* Status Panel & Incident Testing Sidebars */}
             <div className="space-y-6">
@@ -282,6 +386,19 @@ export default function LiveMonitor() {
                     <span className="material-symbols-outlined text-lg text-blue-600">person_search</span>
                     Live AI detection
                   </h2>
+                  {(() => {
+                    const agentOnline =
+                      v2AgentStatus?.cameraId === activeCameraId &&
+                      v2AgentStatus.status === 'online' &&
+                      clock - Date.parse(v2AgentStatus.timestamp) < 15000;
+                    return (
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                        agentOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        AI Detection {agentOnline ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    );
+                  })()}
                   <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
                     detectionSnapshot?.cameraId === activeCameraId && clock - Date.parse(detectionSnapshot.timestamp) < 3000
                       ? 'bg-emerald-50 text-emerald-700'
@@ -325,6 +442,51 @@ export default function LiveMonitor() {
                 ) : (
                   <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
                     AI feed not reporting. Start the camera agent to enable person and fall detection.
+                  </p>
+                )}
+              </section>
+
+              <section className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm" aria-live="polite">
+                <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-slate-700">
+                  <span className="material-symbols-outlined text-lg text-indigo-600">monitoring</span>
+                  VitalCare V2 activity
+                </h2>
+                {activityPredictions.filter((item) => item.cameraId === activeCameraId).length > 0 ? (
+                  <div className="space-y-3">
+                    {activityPredictions
+                      .filter((item) => item.cameraId === activeCameraId)
+                      .map((prediction) => (
+                        <div key={prediction.trackId} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-bold text-slate-800">
+                                Person {prediction.trackId} · {prediction.activity}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Activity confidence {Math.round(prediction.confidence * 100)}%
+                              </p>
+                            </div>
+                            <time className="shrink-0 text-[10px] text-slate-400">
+                              {new Date(prediction.timestamp).toLocaleTimeString()}
+                            </time>
+                          </div>
+                          <details className="mt-2 text-xs text-slate-600">
+                            <summary className="cursor-pointer font-semibold">All 10 class scores</summary>
+                            <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                              {V2_ACTIVITY_CLASSES.map((activityClass) => (
+                                <li key={activityClass} className="flex justify-between gap-2">
+                                  <span>{activityClass}</span>
+                                  <span>{Math.round(prediction.classProbabilities[activityClass] * 100)}%</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                    No V2 activity prediction has been received for this camera yet.
                   </p>
                 )}
               </section>

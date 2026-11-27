@@ -70,6 +70,8 @@ export interface CameraStatus {
   fps: number;
   connectionTime: string | null;
   reconnectAttempts: number;
+  /** ISO timestamp of last complete frame received from FFmpeg (null when no frame yet). */
+  lastFrameAt: string | null;
   error?: string;
 }
 
